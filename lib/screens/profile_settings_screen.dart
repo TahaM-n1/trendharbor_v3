@@ -35,6 +35,26 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   void initState() {
     super.initState();
     _loadUserData();
+    
+    // Add listener to convert username to lowercase
+    _usernameController.addListener(() {
+      final text = _usernameController.text;
+      final lowercaseText = text.toLowerCase();
+      
+      // Only update if there's a difference to avoid infinite loop
+      if (text != lowercaseText) {
+        // Remember cursor position
+        final cursorPos = _usernameController.selection.baseOffset;
+        
+        // Replace the text with lowercase version
+        _usernameController.value = TextEditingValue(
+          text: lowercaseText,
+          selection: TextSelection.collapsed(
+            offset: cursorPos > 0 ? cursorPos : 0,
+          ),
+        );
+      }
+    });
   }
   
   @override
@@ -105,7 +125,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       final userService = Provider.of<UserService>(context, listen: false);
       final currentEmail = userService.currentUser?.email ?? '';
       final newEmail = _emailController.text.trim();
-      final newUsername = _usernameController.text.trim();
+      final newUsername = _usernameController.text.trim().toLowerCase();
+      _usernameController.text = newUsername;
       final newBio = _bioController.text.trim();
       
       bool usernameChanged = false;
@@ -327,11 +348,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                 ),
               ),
 
-              // Username Input
+              // Updated Username Input
               TextFormField(
                 controller: _usernameController,
                 decoration: InputDecoration(
-                  labelText: 'Username',
+                  labelText: 'Username (lowercase only)',
                   prefixIcon: const Icon(Icons.person),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -340,11 +361,25 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                     vertical: 16,
                     horizontal: 16,
                   ),
+                  helperText: 'Lowercase letters, numbers, spaces, and underscores only',
                 ),
+                // Force lowercase input
+                textCapitalization: TextCapitalization.none,
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter your username';
                   }
+                  
+                  // Check for uppercase letters
+                  if (value != value.toLowerCase()) {
+                    return 'Username must be lowercase only';
+                  }
+                  
+                  // Updated regex to allow spaces
+                  if (!RegExp(r'^[a-z0-9_ ]+$').hasMatch(value)) {
+                    return 'Username can only contain lowercase letters, numbers, spaces, and underscores';
+                  }
+                  
                   return null;
                 },
               ),

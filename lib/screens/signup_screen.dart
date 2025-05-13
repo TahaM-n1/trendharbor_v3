@@ -24,6 +24,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isLoading = false;
 
   @override
+  void initState() {
+    super.initState();
+    
+    // Add a listener to convert uppercase to lowercase in real-time
+    _usernameController.addListener(() {
+      final text = _usernameController.text;
+      final lowercaseText = text.toLowerCase();
+      
+      // Only update if there's a difference to avoid infinite loop
+      if (text != lowercaseText) {
+        // Remember cursor position
+        final cursorPos = _usernameController.selection.baseOffset;
+        
+        // Replace the text with lowercase version
+        _usernameController.value = TextEditingValue(
+          text: lowercaseText,
+          selection: TextSelection.collapsed(
+            offset: cursorPos > 0 ? cursorPos : 0,
+          ),
+        );
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -37,6 +62,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
+
+    // Force lowercase username one last time before submission
+    final username = _usernameController.text.trim().toLowerCase();
+    _usernameController.text = username;
 
     // Check password match
     if (_passwordController.text != _confirmPasswordController.text) {
@@ -71,7 +100,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       // Check for username duplication
       final usernameQuery = await FirebaseFirestore.instance
           .collection('users')
-          .where('username', isEqualTo: _usernameController.text.trim())
+          .where('username', isEqualTo: username)
           .get();
 
       if (usernameQuery.docs.isNotEmpty) {
@@ -105,7 +134,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         print("Saving user data to Firestore...");
         await FirebaseFirestore.instance.collection('users').doc(userCredential.user?.uid).set({
           'email': _emailController.text.trim(),
-          'username': _usernameController.text.trim(),
+          'username': username, // Use the lowercase username
           'accountType': _selectedAccountType,
           'createdAt': FieldValue.serverTimestamp(),
           'profileImageUrl': '', // Add default empty profileImageUrl
@@ -115,7 +144,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
         // Store user data in shared preferences
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('username', _usernameController.text.trim());
+        await prefs.setString('username', username);
         await prefs.setString('email', _emailController.text.trim());
         await prefs.setString('accountType', _selectedAccountType!);
         await prefs.setString('userId', userCredential.user?.uid ?? '');
@@ -281,7 +310,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       TextFormField(
                         controller: _usernameController,
                         decoration: InputDecoration(
-                          labelText: 'Username',
+                          labelText: 'Username (lowercase only)',
                           labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.white.withOpacity(0.2),
@@ -293,12 +322,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             vertical: 16,
                             horizontal: 16,
                           ),
+                          // Add helper text to inform users
+                          helperText: 'Lowercase letters, numbers, spaces and underscores only',
+                          helperStyle: TextStyle(color: Colors.white.withOpacity(0.8)),
                         ),
                         style: const TextStyle(color: Colors.white),
+                        // Force lowercase input
+                        textCapitalization: TextCapitalization.none,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your username';
                           }
+                          
+                          // Check for uppercase letters
+                          if (value != value.toLowerCase()) {
+                            return 'Username must be lowercase only';
+                          }
+                          
+                          // Updated regex to allow spaces
+                          if (!RegExp(r'^[a-z0-9_ ]+$').hasMatch(value)) {
+                            return 'Username can only contain lowercase letters, numbers, spaces, and underscores';
+                          }
+                          
                           return null;
                         },
                       ),
