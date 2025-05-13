@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "336348591093",
+    "project_id": "trendharbor-6fafc",
+    "storage_bucket": "trendharbor-6fafc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:336348591093:android:ec857f72ce9e444a69a6bc",
+        "android_client_info": {
+          "package_name": "com.example.trendharbor_v2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDxZSyi1mvNhWUvs0xceFvyDrSaPk_3qHo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
