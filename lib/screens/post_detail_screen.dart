@@ -387,12 +387,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                 },
                               ),
                               IconButton(
-                                icon: const Icon(Icons.share_outlined),
+                                icon: const Icon(Icons.send),  // Changed from share_outlined to send
                                 onPressed: () {
-                                  // Share functionality
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Share feature coming soon')),
-                                  );
+                                  _sharePost();
                                 },
                               ),
                               const Spacer(),
@@ -644,6 +641,254 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           ),
         );
       }
+    }
+  }
+
+  void _sharePost() {
+    if (_postData == null) return;
+    _sharePostInDM(_postData!);
+  }
+
+  void _sharePostInDM(Map<String, dynamic> postData) {
+    final TextEditingController searchController = TextEditingController();
+    List<Map<String, dynamic>> allUsers = [];
+    List<Map<String, dynamic>> filteredUsers = [];
+    bool isLoading = true;
+    String? errorMessage;
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            
+            void searchUsers(String query) {
+              if (query.isEmpty) {
+                setState(() {
+                  filteredUsers = List.from(allUsers);
+                });
+              } else {
+                setState(() {
+                  filteredUsers = allUsers
+                    .where((user) => 
+                      user['username'].toString().toLowerCase().contains(query.toLowerCase()))
+                    .toList();
+                });
+              }
+            }
+            
+            if (isLoading) {
+              FirebaseFirestore.instance
+                .collection('users')
+                .where(FieldPath.documentId, isNotEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                .limit(50)
+                .get()
+                .then((snapshot) {
+                  final users = snapshot.docs.map((doc) {
+                    final data = doc.data();
+                    return {
+                      'id': doc.id,
+                      'username': data['username'] ?? 'Unknown',
+                      'profileImageUrl': data['profileImageUrl'] ?? '',
+                      'accountType': data['accountType'] ?? 'User',
+                    };
+                  }).toList();
+                  
+                  users.sort((a, b) => 
+                    a['username'].toString().toLowerCase().compareTo(
+                      b['username'].toString().toLowerCase()
+                    )
+                  );
+                  
+                  setState(() {
+                    allUsers = users;
+                    filteredUsers = List.from(users);
+                    isLoading = false;
+                  });
+                })
+                .catchError((error) {
+                  setState(() {
+                    errorMessage = 'Error loading users: $error';
+                    isLoading = false;
+                  });
+                });
+            }
+            
+            return AlertDialog(
+              title: const Text('Share Post'),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 400,
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: searchController,
+                      decoration: const InputDecoration(
+                        hintText: 'Search users...',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: searchUsers,
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: isLoading 
+                        ? const Center(child: CircularProgressIndicator())
+                        : errorMessage != null
+                          ? Center(child: Text(errorMessage!))
+                          : filteredUsers.isEmpty
+                            ? const Center(child: Text('No users found'))
+                            : ListView.builder(
+                                itemCount: filteredUsers.length,
+                                itemBuilder: (context, index) {
+                                  final user = filteredUsers[index];
+                                  return ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundImage: user['profileImageUrl'] != null && user['profileImageUrl'].isNotEmpty
+                                          ? NetworkImage(user['profileImageUrl'])
+                                          : null,
+                                      child: user['profileImageUrl'] == null || user['profileImageUrl'].isEmpty
+                                          ? Text(
+                                              user['username'][0].toUpperCase(),
+                                              style: const TextStyle(fontWeight: FontWeight.bold),
+                                            )
+                                          : null,
+                                    ),
+                                    title: Text(user['username']),
+                                    subtitle: Text(user['accountType']),
+                                    onTap: () async {
+                                      Navigator.pop(dialogContext);
+                                      await _sendPostToUser(user['id'], postData);
+                                    },
+                                  );
+                                },
+                              ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ).then((_) {
+      searchController.dispose();
+    });
+  }
+
+  Future<void> _sendPostToUser(String recipientId, Map<String, dynamic> postData) async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return;
+      
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Sending post...'),
+              ],
+            ),
+          );
+        },
+      );
+
+      // Check if chat already exists between these users
+      final chatQuery = await FirebaseFirestore.instance
+          .collection('chats')
+          .where('participants', arrayContains: currentUser.uid)
+          .get();
+      
+      String chatId = '';
+      
+      for (final doc in chatQuery.docs) {
+        final List<dynamic> participants = doc['participants'];
+        if (participants.contains(recipientId)) {
+          chatId = doc.id;
+          break;
+        }
+      }
+      
+      // If no chat exists, create a new one
+      if (chatId.isEmpty) {
+        final chatDoc = await FirebaseFirestore.instance.collection('chats').add({
+          'participants': [currentUser.uid, recipientId],
+          'lastMessage': {
+            'text': 'Shared a post with you',
+            'timestamp': FieldValue.serverTimestamp(),
+            'senderId': currentUser.uid,
+          },
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        
+        chatId = chatDoc.id;
+      } else {
+        // Update the existing chat's last message
+        await FirebaseFirestore.instance.collection('chats').doc(chatId).update({
+          'lastMessage': {
+            'text': 'Shared a post with you',
+            'timestamp': FieldValue.serverTimestamp(),
+            'senderId': currentUser.uid,
+          },
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      
+      // Add message with shared post
+      await FirebaseFirestore.instance.collection('messages').add({
+        'chatId': chatId,
+        'senderId': currentUser.uid,
+        'text': 'Shared a post with you',
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'post_share',
+        'read': false,
+        'sharedPost': {
+          'postId': postData['id'],
+          'imageUrl': postData['imageUrl'],
+          'username': postData['username'],
+          'caption': postData['caption'] ?? '',
+        },
+      });
+      
+      if (mounted) {
+        // Close loading dialog
+        Navigator.pop(context);
+        
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Post shared successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        // Close loading dialog
+        Navigator.pop(context);
+        
+        // Show error message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sharing post: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      print('Error sharing post: $e');
     }
   }
 }

@@ -65,12 +65,11 @@ class ChatService extends ChangeNotifier {
         });
   }
 
-  // Get messages for a specific chat
+  // Update the getMessages method
   Stream<List<Message>> getMessages(String chatId) {
     return _firestore
         .collection('messages')
-        .doc(chatId)
-        .collection('messages')
+        .where('chatId', isEqualTo: chatId)  // Changed from collection path to query parameter
         .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snapshot) {
@@ -78,15 +77,13 @@ class ChatService extends ChangeNotifier {
             final data = doc.data();
             return Message(
               id: doc.id,
-              senderId: data['senderId'],
+              senderId: data['senderId'] ?? '',
               text: data['text'] ?? '',
               timestamp: (data['timestamp'] as Timestamp).toDate(),
               isRead: data['read'] ?? false,
-              type: MessageType.values.firstWhere(
-                (type) => type.name == (data['type'] ?? 'text'),
-                orElse: () => MessageType.text,
-              ),
+              type: data['type'] ?? 'text',
               mediaUrl: data['mediaUrl'],
+              sharedPost: data['sharedPost'], // Ensure this field is mapped properly
             );
           }).toList();
         });
@@ -145,12 +142,11 @@ class ChatService extends ChangeNotifier {
 
     final now = FieldValue.serverTimestamp();
 
-    // Add message to messages subcollection
+    // Add message to messages collection (not subcollection)
     await _firestore
         .collection('messages')
-        .doc(chatId)
-        .collection('messages')
         .add({
+          'chatId': chatId,  // Add chatId as a field instead of using subcollection
           'senderId': currentUserId,
           'text': text,
           'timestamp': now,
@@ -172,7 +168,7 @@ class ChatService extends ChangeNotifier {
         });
   }
 
-  // Mark all messages in a chat as read
+  // Update markMessagesAsRead method
   Future<void> markMessagesAsRead(String chatId) async {
     if (currentUserId == null) return;
 
@@ -181,8 +177,7 @@ class ChatService extends ChangeNotifier {
     // Get all unread messages not sent by current user
     final messagesQuery = await _firestore
         .collection('messages')
-        .doc(chatId)
-        .collection('messages')
+        .where('chatId', isEqualTo: chatId)
         .where('read', isEqualTo: false)
         .where('senderId', isNotEqualTo: currentUserId)
         .get();
@@ -196,24 +191,20 @@ class ChatService extends ChangeNotifier {
     await batch.commit();
   }
   
-  // Delete a chat
+  // Update deleteChat method
   Future<void> deleteChat(String chatId) async {
     await _firestore.collection('chats').doc(chatId).delete();
     
     // Delete all messages in the chat
     final messagesQuery = await _firestore
         .collection('messages')
-        .doc(chatId)
-        .collection('messages')
+        .where('chatId', isEqualTo: chatId)
         .get();
     
     final batch = _firestore.batch();
     for (var doc in messagesQuery.docs) {
       batch.delete(doc.reference);
     }
-    
-    // Delete the messages document
-    batch.delete(_firestore.collection('messages').doc(chatId));
     
     await batch.commit();
   }

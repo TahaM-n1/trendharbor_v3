@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
 import '../services/chat_service.dart';
 import '../models/message_model.dart';
 
@@ -23,6 +24,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isLoading = false;
+  late String _currentUserId;
 
   @override
   void initState() {
@@ -71,7 +73,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final chatService = Provider.of<ChatService>(context);
-    final currentUserId = chatService.currentUserId;
+  _currentUserId = chatService.currentUserId ?? '';
 
     return Scaffold(
       appBar: AppBar(
@@ -132,9 +134,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   padding: const EdgeInsets.all(16),
                   itemBuilder: (context, index) {
                     final message = messages[index];
-                    final isMe = message.senderId == currentUserId;
-                    
-                    return _buildMessageBubble(message, isMe);
+                    return _buildMessageItem(message);
                   },
                 );
               },
@@ -146,10 +146,94 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildMessageBubble(Message message, bool isMe) {
-    final bubbleColor = isMe ? Colors.blue.shade100 : Colors.grey.shade200;
-    final textColor = isMe ? Colors.blue.shade800 : Colors.black87;
-    final alignment = isMe ? MainAxisAlignment.end : MainAxisAlignment.start;
+  Widget _buildMessageItem(Message message) {
+    final isMine = message.senderId == _currentUserId;
+    
+    if (message.type == 'post_share') {
+      // This is a shared post message
+      return Align(
+        alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
+          padding: const EdgeInsets.all(8.0),
+          decoration: BoxDecoration(
+            color: isMine ? Colors.blue.shade100 : Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Shared a post from ${message.sharedPost?['username'] ?? 'Unknown'}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () {
+                  if (message.sharedPost != null && message.sharedPost?['postId'] != null) {
+                    context.push('/post/${message.sharedPost!['postId']}');
+                  }
+                },
+                child: Container(
+                  width: 200,
+                  height: 200,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: message.sharedPost != null && message.sharedPost?['imageUrl'] != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            message.sharedPost!['imageUrl'] as String,
+                            fit: BoxFit.cover,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Center(
+                                child: CircularProgressIndicator(
+                                  value: loadingProgress.expectedTotalBytes != null
+                                      ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                      : null,
+                                ),
+                              );
+                            },
+                            errorBuilder: (context, error, _) => const Center(
+                              child: Icon(Icons.broken_image, size: 40),
+                            ),
+                          ),
+                        )
+                      : const Center(child: Icon(Icons.image, size: 40)),
+                ),
+              ),
+              if (message.sharedPost != null && 
+                  message.sharedPost?['caption'] != null && 
+                  message.sharedPost!['caption'].isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(
+                    message.sharedPost!['caption'],
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Text(
+                  _formatTimestamp(message.timestamp),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    // Regular message bubble
+    final bubbleColor = isMine ? Colors.blue.shade100 : Colors.grey.shade200;
+    final textColor = isMine ? Colors.blue.shade800 : Colors.black87;
+    final alignment = isMine ? MainAxisAlignment.end : MainAxisAlignment.start;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -166,7 +250,7 @@ class _ChatScreenState extends State<ChatScreen> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: Column(
-              crossAxisAlignment: isMe 
+              crossAxisAlignment: isMine 
                   ? CrossAxisAlignment.end
                   : CrossAxisAlignment.start,
               children: [
@@ -257,5 +341,9 @@ class _ChatScreenState extends State<ChatScreen> {
           ? AssetImage(user.profileImageUrl)
           : NetworkImage(user.profileImageUrl) as ImageProvider,
     );
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    return DateFormat.jm().format(timestamp);
   }
 }
