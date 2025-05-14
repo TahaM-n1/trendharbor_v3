@@ -1,4 +1,3 @@
-// lib/screens/shop_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -275,8 +274,9 @@ class _ShopScreenState extends State<ShopScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-                success ? 'Added to cart successfully' : 'Failed to add to cart'),
+            content: Text(success
+                ? 'Added to cart successfully'
+                : 'Failed to add to cart'),
             action: success
                 ? SnackBarAction(
                     label: 'View Cart',
@@ -318,7 +318,8 @@ class _ShopScreenState extends State<ShopScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Shop', style: TextStyle(fontWeight: FontWeight.bold)),
+        title:
+            const Text('Shop', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
@@ -360,8 +361,9 @@ class _ShopScreenState extends State<ShopScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    // Fixed height to prevent overflow
                     SizedBox(
-                      height: 220,
+                      height: 270, // Increased to 270 to avoid overflow
                       child: _isLoadingFeatured
                           ? const Center(child: CircularProgressIndicator())
                           : _featuredProducts.isEmpty
@@ -410,7 +412,8 @@ class _ShopScreenState extends State<ShopScreen> {
                               itemCount: _categories.length,
                               itemBuilder: (context, index) {
                                 final category = _categories[index];
-                                final isSelected = _selectedCategory == category;
+                                final isSelected =
+                                    _selectedCategory == category;
 
                                 return CategoryItem(
                                   icon: _getCategoryIcon(category),
@@ -481,7 +484,9 @@ class _ShopScreenState extends State<ShopScreen> {
                                 crossAxisCount: crossAxisCount,
                                 mainAxisSpacing: 16,
                                 crossAxisSpacing: 16,
-                                childAspectRatio: 0.7,
+                                // Adjusted child aspect ratio to fix overflow
+                                childAspectRatio:
+                                    0.62, // Further reduced to avoid overflow
                               ),
                               delegate: SliverChildBuilderDelegate(
                                 (context, index) {
@@ -507,8 +512,9 @@ class _ShopScreenState extends State<ShopScreen> {
                   child: Center(child: CircularProgressIndicator()),
                 ),
               ),
-            const SliverToBoxAdapter(
-              child: SizedBox(height: 20),
+            // Added extra padding at the bottom to prevent any potential overflow with bottom nav bar
+            SliverToBoxAdapter(
+              child: SizedBox(height: 30), // Increased from 20 to 30
             ),
           ],
         ),
@@ -643,9 +649,11 @@ class FeaturedProductCard extends StatelessWidget {
                             ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(
+                          10), // Reduced padding from 12 to 10
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
                             product.name,
@@ -683,12 +691,15 @@ class FeaturedProductCard extends StatelessWidget {
                             ],
                           ),
                           if (onAddToCart != null) ...[
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6), // Reduced from 8 to 6
                             SizedBox(
                               width: double.infinity,
+                              height: 30, // Fixed height ensures consistency
                               child: ElevatedButton.icon(
-                                onPressed: product.stock > 0 ? onAddToCart : null,
-                                icon: const Icon(Icons.shopping_cart, size: 16),
+                                onPressed:
+                                    product.stock > 0 ? onAddToCart : null,
+                                icon: const Icon(Icons.shopping_cart,
+                                    size: 14), // Smaller icon
                                 label: Text(
                                   product.stock > 0
                                       ? 'Add to Cart'
@@ -697,7 +708,8 @@ class FeaturedProductCard extends StatelessWidget {
                                 ),
                                 style: ElevatedButton.styleFrom(
                                   padding:
-                                      const EdgeInsets.symmetric(vertical: 8),
+                                      const EdgeInsets.symmetric(vertical: 0),
+                                  minimumSize: const Size(double.infinity, 30),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
@@ -759,6 +771,7 @@ class ProductCard extends StatelessWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       elevation: 2,
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
       ),
@@ -766,6 +779,8 @@ class ProductCard extends StatelessWidget {
         onTap: onTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize:
+              MainAxisSize.min, // Ensures column takes minimum space needed
           children: [
             AspectRatio(
               aspectRatio: 1,
@@ -790,9 +805,11 @@ class ProductCard extends StatelessWidget {
                     ),
             ),
             Padding(
-              padding: const EdgeInsets.all(12.0),
+              padding: const EdgeInsets.all(
+                  6.0), // Further reduced padding from 8 to 6
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     product.name,
@@ -803,7 +820,7 @@ class ProductCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2), // Reduced spacing
                   Row(
                     children: [
                       Text(
@@ -825,7 +842,7 @@ class ProductCard extends StatelessWidget {
                       ],
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2), // Reduced spacing
                   Text(
                     product.stock > 0 ? 'In Stock' : 'Out of Stock',
                     style: TextStyle(
@@ -837,13 +854,13 @@ class ProductCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Spacer(),
+            const Spacer(), // Uses remaining space
             if (onAddToCart != null)
               InkWell(
                 onTap: product.stock > 0 ? onAddToCart : null,
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
                   color: product.stock > 0
                       ? Theme.of(context).primaryColor.withOpacity(0.1)
                       : Colors.grey.shade200,
@@ -852,6 +869,7 @@ class ProductCard extends StatelessWidget {
                       product.stock > 0 ? 'Add to Cart' : 'Out of Stock',
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
+                        fontSize: 12,
                         color: product.stock > 0
                             ? Theme.of(context).primaryColor
                             : Colors.grey.shade600,
