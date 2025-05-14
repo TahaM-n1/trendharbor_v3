@@ -35,18 +35,27 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   String _currentUserId = '';
   bool _isCurrentUser = true;
   List<Map<String, dynamic>> _userPosts = [];
+  List<Map<String, dynamic>> _likedPosts = [];
   bool _isFollowing = false;
   int _followersCount = 0;
   int _followingCount = 0;
   int _postsCount = 0;
   String _accountType = 'Personal'; // Default account type
+  bool _isLoadingLiked = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadProfileData();
+    _loadProfileData().then((_) => _loadLikedPosts());
     
+    // Listen for tab changes to load data only when needed
+    _tabController.addListener(() {
+      if (_tabController.index == 1 && _likedPosts.isEmpty && !_isLoadingLiked) {
+        _loadLikedPosts();
+      }
+    });
+
     // Set up a timer to refresh user data periodically
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted && _isCurrentUser) {
@@ -167,6 +176,85 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading profile: $e'))
         );
+      }
+    }
+  }
+
+  Future<void> _loadLikedPosts() async {
+    if (!_isCurrentUser && _userData == null) return;
+    
+    final String userId = _isCurrentUser ? _currentUserId : _userData!['id'];
+    
+    setState(() {
+      _isLoadingLiked = true;
+    });
+    
+    try {
+      // Modified query to include timestamp field along with userId
+      final likesQuery = await FirebaseFirestore.instance
+        .collectionGroup('likes')
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true) // Adding timestamp as a second field
+        .get();
+        
+      if (likesQuery.docs.isEmpty) {
+        setState(() {
+          _likedPosts = [];
+          _isLoadingLiked = false;
+        });
+        return;
+      }
+      
+      // Extract post IDs from likes
+      final postIds = likesQuery.docs.map((doc) {
+        // The parent of a like document is the 'likes' collection, and its parent is the post document
+        return doc.reference.parent.parent!.id;
+      }).toList();
+      
+      // Fetch the actual posts
+      final List<Map<String, dynamic>> posts = [];
+      
+      // Process posts in batches to avoid excessive reads
+      const batchSize = 10;
+      for (var i = 0; i < postIds.length; i += batchSize) {
+        final end = (i + batchSize < postIds.length) ? i + batchSize : postIds.length;
+        final batch = postIds.sublist(i, end);
+        
+        // Get the posts for this batch
+        final postsSnapshot = await FirebaseFirestore.instance
+          .collection('posts')
+          .where(FieldPath.documentId, whereIn: batch)
+          .get();
+          
+        // Add to our posts list
+        posts.addAll(postsSnapshot.docs.map((doc) => {
+          'id': doc.id,
+          ...doc.data(),
+        }).toList());
+      }
+      
+      // Sort by most recently liked
+      posts.sort((a, b) {
+        final aTimestamp = a['timestamp'] as Timestamp?;
+        final bTimestamp = b['timestamp'] as Timestamp?;
+        if (aTimestamp == null || bTimestamp == null) return 0;
+        return bTimestamp.compareTo(aTimestamp); // Newest first
+      });
+      
+      if (mounted) {
+        setState(() {
+          _likedPosts = posts;
+          _isLoadingLiked = false;
+        });
+        print("Loaded ${_likedPosts.length} liked posts");
+      }
+    } catch (e) {
+      print('Error loading liked posts: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingLiked = false;
+          _likedPosts = [];
+        });
       }
     }
   }
@@ -543,6 +631,19 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     }
   }
 
+  double _calculateTabContentHeight() {
+    if (_tabController.index == 0) {
+      // Posts tab
+      return _userPosts.isEmpty ? 300 : (_userPosts.length / 3).ceil() * 160;
+    } else if (_tabController.index == 1) {
+      // Liked posts tab
+      return _likedPosts.isEmpty ? 300 : (_likedPosts.length / 3).ceil() * 160;
+    } else {
+      // Saved posts tab (no real content yet)
+      return 300;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -852,7 +953,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                         
                         // Tab content - Dynamic height grid
                         SizedBox(
-                          height: _userPosts.isEmpty ? 300 : (_userPosts.length / 3).ceil() * 160,
+                          height: _calculateTabContentHeight(),
                           child: TabBarView(
                             controller: _tabController,
                             children: [
@@ -860,22 +961,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                               _buildPostsGrid(),
                               
                               // Liked posts grid
-                              Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.favorite, size: 48, color: Colors.grey.shade300),
-                                    const SizedBox(height: 16),
-                                    const Text(
-                                      "Liked posts will appear here",
-                                      style: TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                              _buildLikedPostsGrid(),
                               
                               // Saved posts grid
                               Center(
@@ -1121,6 +1207,163 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                         color: Colors.grey,
                       ),
                     ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLikedPostsGrid() {
+    if (_isLoadingLiked) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+    
+    if (_likedPosts.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.favorite_border, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            const Text(
+              'No liked posts yet',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Posts you like will appear here',
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(8),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: _likedPosts.length,
+      itemBuilder: (context, index) {
+        final post = _likedPosts[index];
+        final imageUrl = post['imageUrl'];
+        
+        return GestureDetector(
+          onTap: () {
+            // Navigate to post detail view
+            context.push('/post/${post['id']}');
+          },
+          child: Hero(
+            tag: 'liked-post-${post['id']}',
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Post image
+                    imageUrl != null && imageUrl.isNotEmpty
+                      ? Image.network(
+                          "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
+                          key: ValueKey("liked-$imageUrl"),
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Center(
+                              child: CircularProgressIndicator(
+                                value: loadingProgress.expectedTotalBytes != null
+                                    ? loadingProgress.cumulativeBytesLoaded / 
+                                      loadingProgress.expectedTotalBytes!
+                                    : null,
+                                strokeWidth: 2,
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Center(
+                              child: Icon(
+                                Icons.broken_image,
+                                size: 32,
+                                color: Colors.grey,
+                              ),
+                            );
+                          },
+                        )
+                      : const Center(
+                          child: Icon(
+                            Icons.image,
+                            size: 32,
+                            color: Colors.grey,
+                          ),
+                        ),
+                    
+                    // Username overlay at bottom
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              Colors.black.withOpacity(0.7),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                        child: Text(
+                          post['username'] ?? 'Unknown',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    
+                    // Heart icon overlay in top-right
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.4),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.favorite,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
