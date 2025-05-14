@@ -30,6 +30,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   String? _profileImageUrl;
   bool _isVerified = false;
   bool _changePassword = false;
+  String _selectedAccountType = '';
+  bool _accountTypeChanged = false;
   
   @override
   void initState() {
@@ -95,6 +97,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           _usernameController.text = user.username;
           _emailController.text = user.email;
           _accountType = user.accountType;
+          _selectedAccountType = user.accountType;
           _profileImageUrl = user.profileImageUrl;
           _isVerified = user.isVerified;
           _bioController.text = userDoc.data()?['bio'] ?? '';
@@ -132,6 +135,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       bool usernameChanged = false;
       bool emailChanged = false;
       bool passwordChanged = false;
+      bool accountTypeChanged = _accountType != _selectedAccountType;
       
       // Check if username needs to be updated
       if (newUsername != userService.currentUser?.username) {
@@ -150,6 +154,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       await FirebaseFirestore.instance.collection('users').doc(_userId).update({
         'username': newUsername,
         'bio': newBio,
+        if (accountTypeChanged) 'accountType': _selectedAccountType,
         // Don't update email in Firestore yet - we'll do it after auth succeeds
       });
       
@@ -235,6 +240,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         username: newUsername, 
         email: emailChanged ? null : newEmail, // Only update email locally if not pending verification
         bio: newBio,
+        accountType: accountTypeChanged ? _selectedAccountType : null,
       );
       
       // Update shared preferences
@@ -243,12 +249,16 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       if (!emailChanged) {
         prefs.setString('email', newEmail);
       }
+      if (accountTypeChanged) {
+        prefs.setString('accountType', _selectedAccountType);
+      }
       
       // Prepare success message
       String successMessage = '';
       if (usernameChanged) successMessage += 'Username updated. ';
       if (emailChanged) successMessage += 'Email verification sent. ';
       if (passwordChanged) successMessage += 'Password updated. ';
+      if (accountTypeChanged) successMessage += 'Account type updated. ';
       
       if (successMessage.isEmpty) {
         successMessage = 'Profile updated successfully.';
@@ -300,53 +310,119 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Account type (non-editable)
-              Card(
-                margin: const EdgeInsets.only(bottom: 24),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.badge,
-                        color: Colors.blue.shade700,
-                      ),
-                      const SizedBox(width: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Account Type',
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _accountType,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Tooltip(
-                        message: 'Account type cannot be changed',
-                        child: Icon(
-                          Icons.info_outline,
-                          color: Colors.grey.shade400,
+              // Replace the static account type card with a dropdown if account is Personal or Influencer
+              // Otherwise keep it as a non-editable field for Organization accounts
+              if (_accountType.toLowerCase() == 'organization')
+                // Keep the original non-editable account type display for Organization accounts
+                Card(
+                  margin: const EdgeInsets.only(bottom: 24),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.badge,
+                          color: Colors.blue.shade700,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 16),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Account Type',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _accountType,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        Tooltip(
+                          message: 'Organization accounts cannot change account type',
+                          child: Icon(
+                            Icons.info_outline,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                // For Personal and Influencer accounts, show account type dropdown
+                Card(
+                  margin: const EdgeInsets.only(bottom: 24),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Account Type',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: _selectedAccountType,
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'Personal',
+                              child: Text('Personal'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Influencer',
+                              child: Text('Influencer'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() {
+                                _selectedAccountType = value;
+                                _accountTypeChanged = _selectedAccountType != _accountType;
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'You can switch between Personal and Influencer accounts only',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
 
               // Updated Username Input
               TextFormField(
