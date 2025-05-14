@@ -1,6 +1,5 @@
 // lib/screens/campaigns_screen.dart
 import 'package:flutter/material.dart';
-import 'package:trendharbor_v2/screens/campaign_analytic_screen.dart';
 import 'package:trendharbor_v2/screens/collaborations_screen.dart';
 import '../widgets/bottom_navbar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -464,6 +463,8 @@ class _CampaignsScreenState extends State<CampaignsScreen>
           ),
         );
       }
+
+      //ADDED HERE A LOGIC TO DISPLAY THE ANALYTICS
     } catch (e) {
       print('Error accepting bid: $e');
       if (mounted) {
@@ -1629,56 +1630,6 @@ class _CampaignsScreenState extends State<CampaignsScreen>
                     ),
                   ),
                 ],
-                if (_accountType.toLowerCase() == 'organization')
-                  _buildInfluencerBidsSection(campaign, campaignId),
-                if (status == 'completed') ...[
-                  const SizedBox(height: 16),
-                  ...campaign['influencerBids']?.entries.map((entry) {
-                    final influencerId = entry.key;
-                    final bidData = entry.value;
-
-                    if (bidData['status'] == 'completed') {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 10),
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => CampaignAnalyticsScreen(
-                                  campaignId: campaignId,
-                                  influencerId: influencerId,
-                                ),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.analytics_outlined),
-                          label: const Text('View Campaign Analytics'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.deepPurple,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  }).toList(),
-                ],
-
-                // These are the closing brackets
-                Container(
-                  height: 1,
-                  decoration: BoxDecoration(
-                    borderRadius: const BorderRadius.only(
-                      bottomLeft: Radius.circular(20),
-                      bottomRight: Radius.circular(20),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
