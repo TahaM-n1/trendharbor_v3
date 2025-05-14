@@ -561,7 +561,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     return Scaffold(
       appBar: AppBar(
         title: Text(username),
-        automaticallyImplyLeading: !_isCurrentUser, // Back button for other profiles
+        automaticallyImplyLeading: !_isCurrentUser,
         actions: [
           if (_isCurrentUser)
             IconButton(
@@ -570,207 +570,342 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             ),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Profile Header
-            Padding(
-              padding: const EdgeInsets.all(16.0),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(
+              scrollbars: false, // This disables the scrollbar
+            ),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      // Profile Image
-                      GestureDetector(
-                        onTap: _isCurrentUser ? _pickAndUploadImage : null,
-                        child: Stack(
-                          alignment: Alignment.bottomRight,
-                          children: [
-                            Container(
-                              width: 100,
-                              height: 100,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.blue.shade700,
-                                  width: 3,
-                                ),
-                              ),
-                              child: ClipOval(
-                                child: (profileImageUrl != null && profileImageUrl.isNotEmpty)
-                                  ? FutureBuilder<bool>(
-                                      future: _checkImageExists(profileImageUrl),
-                                      builder: (context, snapshot) {
-                                        if (snapshot.connectionState == ConnectionState.waiting) {
-                                          return const Center(child: CircularProgressIndicator());
-                                        }
-                                        
-                                        final imageExists = snapshot.data ?? false;
-                                        
-                                        if (imageExists) {
-                                          final randomParam = Random().nextInt(1000000);
-                                          
-                                          return Image(
-                                            image: NetworkImage('$profileImageUrl&cache=$randomParam'),
-                                            fit: BoxFit.cover,
-                                            width: 100,
-                                            height: 100,
-                                            loadingBuilder: (context, child, loadingProgress) {
-                                              if (loadingProgress == null) return child;
-                                              return Center(
-                                                child: CircularProgressIndicator(
-                                                  value: loadingProgress.expectedTotalBytes != null
-                                                      ? loadingProgress.cumulativeBytesLoaded / 
-                                                        loadingProgress.expectedTotalBytes!
-                                                      : null,
-                                                ),
-                                              );
-                                            },
-                                            errorBuilder: (context, error, stackTrace) {
-                                              print("Error loading profile image with Image widget: $error");
-                                              return _buildUserAvatar(username);
-                                            },
-                                          );
-                                        } else {
-                                          print("Image URL exists but cannot be loaded: $profileImageUrl");
-                                          return _buildUserAvatar(username);
-                                        }
-                                      })
-                                  : _buildUserAvatar(username),
-                              ),
-                            ),
-                            if (_isCurrentUser)
-                              Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.shade700,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.camera_alt,
-                                  color: Colors.white,
-                                  size: 18,
-                                ),
-                              ),
-                          ],
+                  // Profile Header - Responsive layout
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.1),
+                          blurRadius: 10,
+                          spreadRadius: 0,
                         ),
-                      ),
-                      const SizedBox(width: 24),
-                      
-                      // Stats
-                      Expanded(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _buildStatColumn(_postsCount, 'Posts'),
-                            _buildStatColumn(_followersCount, 'Followers'),
-                            _buildStatColumn(_followingCount, 'Following'),
-                          ],
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(24),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        // Use row layout on large screens, column on small
+                        final isLargeScreen = constraints.maxWidth > 600;
+                        
+                        if (isLargeScreen) {
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Left column with profile image
+                              Column(
+                                children: [
+                                  _buildProfileImage(username, profileImageUrl),
+                                  const SizedBox(height: 16),
+                                  // Username and badge for large screens
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        username,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 20,
+                                        ),
+                                      ),
+                                      if (isVerified)
+                                        Padding(
+                                          padding: const EdgeInsets.only(left: 4.0),
+                                          child: Icon(
+                                            Icons.verified,
+                                            color: Colors.blue,
+                                            size: 18,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  // Account type badge
+                                  Container(
+                                    margin: const EdgeInsets.only(top: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade100,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Text(
+                                      accountType,
+                                      style: TextStyle(
+                                        color: Colors.blue.shade800,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(width: 32),
+                              
+                              // Right column with stats and bio
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Stats in horizontal row
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade50,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                        children: [
+                                          _buildStatColumn(_postsCount, 'Posts'),
+                                          _buildStatsVerticalDivider(),
+                                          _buildStatColumn(_followersCount, 'Followers'),
+                                          _buildStatsVerticalDivider(),
+                                          _buildStatColumn(_followingCount, 'Following'),
+                                        ],
+                                      ),
+                                    ),
+                                    
+                                    const SizedBox(height: 20),
+                                    
+                                    // Bio with header
+                                    if (bio.isNotEmpty) ...[
+                                      Text(
+                                        'Bio',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.grey.shade700,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade50,
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          bio,
+                                          style: TextStyle(
+                                            height: 1.4,
+                                            color: Colors.grey.shade800,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 20),
+                                    ],
+                                    
+                                    // Action buttons
+                                    _isCurrentUser
+                                        ? _buildCurrentUserButtons()
+                                        : _buildOtherUserButtons(),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        } else {
+                          // Mobile layout (original layout with some improvements)
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  // Profile Image
+                                  _buildProfileImage(username, profileImageUrl),
+                                  const SizedBox(width: 24),
+                                  
+                                  // Stats
+                                  Expanded(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                        children: [
+                                          _buildStatColumn(_postsCount, 'Posts'),
+                                          _buildStatColumn(_followersCount, 'Followers'),
+                                          _buildStatColumn(_followingCount, 'Following'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              
+                              const SizedBox(height: 16),
+                              
+                              // Username and verified badge
+                              Row(
+                                children: [
+                                  Text(
+                                    username,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                  if (isVerified)
+                                    const Padding(
+                                      padding: EdgeInsets.only(left: 4.0),
+                                      child: Icon(
+                                        Icons.verified,
+                                        color: Colors.blue,
+                                        size: 16,
+                                      ),
+                                    ),
+                                  const Spacer(),
+                                  // Account type badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade100,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      accountType,
+                                      style: TextStyle(
+                                        color: Colors.blue.shade700,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              
+                              // Bio
+                              if (bio.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12.0, bottom: 4.0),
+                                  child: Text(bio),
+                                ),
+                              
+                              const SizedBox(height: 16),
+                              
+                              // Action buttons
+                              _isCurrentUser
+                                  ? _buildCurrentUserButtons()
+                                  : _buildOtherUserButtons(),
+                            ],
+                          );
+                        }
+                      },
+                    ),
                   ),
                   
-                  const SizedBox(height: 16),
-                  
-                  // Username and verified badge
-                  Row(
-                    children: [
-                      Text(
-                        username,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
+                  // Tab section
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.1),
+                          blurRadius: 10,
+                          spreadRadius: 0,
                         ),
-                      ),
-                      if (isVerified)
-                        const Padding(
-                          padding: EdgeInsets.only(left: 4.0),
-                          child: Icon(
-                            Icons.verified,
-                            color: Colors.blue,
-                            size: 16,
+                      ],
+                    ),
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Column(
+                      children: [
+                        // Tabs
+                        TabBar(
+                          controller: _tabController,
+                          indicatorColor: Colors.blue.shade700,
+                          labelColor: Colors.black,
+                          tabs: const [
+                            Tab(
+                              icon: Icon(Icons.grid_on),
+                              text: "Posts",
+                            ),
+                            Tab(
+                              icon: Icon(Icons.favorite_border),
+                              text: "Likes",
+                            ),
+                            Tab(
+                              icon: Icon(Icons.bookmark_border),
+                              text: "Saved",
+                            ),
+                          ],
+                        ),
+                        
+                        // Tab content - Dynamic height grid
+                        SizedBox(
+                          height: _userPosts.isEmpty ? 300 : (_userPosts.length / 3).ceil() * 160,
+                          child: TabBarView(
+                            controller: _tabController,
+                            children: [
+                              // Posts grid
+                              _buildPostsGrid(),
+                              
+                              // Liked posts grid
+                              Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.favorite, size: 48, color: Colors.grey.shade300),
+                                    const SizedBox(height: 16),
+                                    const Text(
+                                      "Liked posts will appear here",
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
+                              // Saved posts grid
+                              Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.bookmark, size: 48, color: Colors.grey.shade300),
+                                    const SizedBox(height: 16),
+                                    const Text(
+                                      "Saved posts will appear here",
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                    ],
-                  ),
-                  
-                  // Account type badge
-                  Container(
-                    margin: const EdgeInsets.only(top: 4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
+                      ],
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      accountType,
-                      style: TextStyle(
-                        color: Colors.blue.shade700,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                  
-                  // Bio
-                  if (bio.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: Text(bio),
-                    ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  // Action buttons
-                  _isCurrentUser
-                      ? _buildCurrentUserButtons()
-                      : _buildOtherUserButtons(),
-                ],
-              ),
-            ),
-            
-            // Tabs and content
-            TabBar(
-              controller: _tabController,
-              indicatorColor: Colors.blue.shade700,
-              labelColor: Colors.black,
-              tabs: const [
-                Tab(icon: Icon(Icons.grid_on)),
-                Tab(icon: Icon(Icons.favorite_border)),
-                Tab(icon: Icon(Icons.bookmark_border)),
-              ],
-            ),
-            
-            // Tab content - Fixed height for tab views
-            SizedBox(
-              height: 300, // Fixed height for the grid view
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // Posts grid
-                  _buildPostsGrid(),
-                  
-                  // Liked posts grid (placeholder)
-                  const Center(
-                    child: Text("Liked posts will appear here"),
-                  ),
-                  
-                  // Saved posts grid (placeholder)
-                  const Center(
-                    child: Text("Saved posts will appear here"),
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
-      // Add bottom navigation bar
       bottomNavigationBar: const BottomNavBar(),
     );
   }
@@ -892,14 +1027,26 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('No posts yet'),
+            Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            const Text(
+              'No posts yet',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
             if (_isCurrentUser)
               Padding(
                 padding: const EdgeInsets.only(top: 16),
-                child: TextButton.icon(
+                child: ElevatedButton.icon(
                   onPressed: () => context.push('/create-post'),
                   icon: const Icon(Icons.add_photo_alternate),
                   label: const Text('Create Your First Post'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    backgroundColor: Colors.blue.shade700,
+                  ),
                 ),
               ),
           ],
@@ -908,11 +1055,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     }
 
     return GridView.builder(
-      padding: const EdgeInsets.all(2),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 2,
-        mainAxisSpacing: 2,
+      padding: const EdgeInsets.all(8),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
       ),
       itemCount: _userPosts.length,
       itemBuilder: (context, index) {
@@ -927,8 +1074,20 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
           child: Hero(
             tag: 'post-${post['id']}',
             child: Container(
-              color: Colors.grey.shade200,
-              child: imageUrl != null && imageUrl.isNotEmpty
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: imageUrl != null && imageUrl.isNotEmpty
                   ? Image.network(
                       "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
                       key: ValueKey(imageUrl),
@@ -941,18 +1100,117 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                 ? loadingProgress.cumulativeBytesLoaded / 
                                   loadingProgress.expectedTotalBytes!
                                 : null,
+                            strokeWidth: 2,
                           ),
                         );
                       },
                       errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.broken_image);
+                        return const Center(
+                          child: Icon(
+                            Icons.broken_image,
+                            size: 32,
+                            color: Colors.grey,
+                          ),
+                        );
                       },
                     )
-                  : const Center(child: Icon(Icons.image)),
+                  : const Center(
+                      child: Icon(
+                        Icons.image,
+                        size: 32,
+                        color: Colors.grey,
+                      ),
+                    ),
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildStatsVerticalDivider() {
+    return Container(
+      height: 30,
+      width: 1,
+      color: Colors.grey.shade300,
+    );
+  }
+
+  Widget _buildProfileImage(String username, String? profileImageUrl) {
+    return GestureDetector(
+      onTap: _isCurrentUser ? _pickAndUploadImage : null,
+      child: Stack(
+        alignment: Alignment.bottomRight,
+        children: [
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.blue.shade700,
+                width: 3,
+              ),
+            ),
+            child: ClipOval(
+              child: (profileImageUrl != null && profileImageUrl.isNotEmpty)
+                ? FutureBuilder<bool>(
+                    future: _checkImageExists(profileImageUrl),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      
+                      final imageExists = snapshot.data ?? false;
+                      
+                      if (imageExists) {
+                        final randomParam = Random().nextInt(1000000);
+                        
+                        return Image(
+                          image: NetworkImage('$profileImageUrl&cache=$randomParam'),
+                          fit: BoxFit.cover,
+                          width: 100,
+                          height: 100,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Center(
+                              child: CircularProgressIndicator(
+                                value: loadingProgress.expectedTotalBytes != null
+                                    ? loadingProgress.cumulativeBytesLoaded / 
+                                      loadingProgress.expectedTotalBytes!
+                                    : null,
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            print("Error loading profile image with Image widget: $error");
+                            return _buildUserAvatar(username);
+                          },
+                        );
+                      } else {
+                        print("Image URL exists but cannot be loaded: $profileImageUrl");
+                        return _buildUserAvatar(username);
+                      }
+                    })
+                : _buildUserAvatar(username),
+            ),
+          ),
+          if (_isCurrentUser)
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade700,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.camera_alt,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

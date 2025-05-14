@@ -26,18 +26,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.initState();
     _loadUserData();
     _loadPosts();
-    
+
     // Add scroll listener for pagination
     _scrollController.addListener(() {
-      if (_scrollController.position.pixels >= 
-          _scrollController.position.maxScrollExtent * 0.8 &&
+      if (_scrollController.position.pixels >=
+              _scrollController.position.maxScrollExtent * 0.8 &&
           !_isLoading &&
           _hasMorePosts) {
         _loadMorePosts();
       }
     });
   }
-  
+
   @override
   void dispose() {
     _scrollController.dispose();
@@ -50,19 +50,19 @@ class _ExploreScreenState extends State<ExploreScreen> {
       _accountType = prefs.getString('accountType') ?? 'personal';
     });
   }
-  
+
   Future<void> _loadPosts() async {
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
       final querySnapshot = await FirebaseFirestore.instance
           .collection('posts')
           .orderBy('timestamp', descending: true)
           .limit(_postsPerPage)
           .get();
-          
+
       if (querySnapshot.docs.isEmpty) {
         setState(() {
           _posts = [];
@@ -71,12 +71,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
         });
         return;
       }
-      
+
       final posts = querySnapshot.docs.map((doc) => {
-        'id': doc.id,
-        ...doc.data(),
-      }).toList();
-      
+            'id': doc.id,
+            ...doc.data(),
+          }).toList();
+
       setState(() {
         _posts = posts;
         _isLoading = false;
@@ -88,7 +88,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       setState(() {
         _isLoading = false;
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading posts: $e')),
@@ -96,14 +96,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
       }
     }
   }
-  
+
   Future<void> _loadMorePosts() async {
     if (!_hasMorePosts || _lastDocument == null) return;
-    
+
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
       final querySnapshot = await FirebaseFirestore.instance
           .collection('posts')
@@ -111,7 +111,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           .startAfterDocument(_lastDocument!)
           .limit(_postsPerPage)
           .get();
-          
+
       if (querySnapshot.docs.isEmpty) {
         setState(() {
           _isLoading = false;
@@ -119,12 +119,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
         });
         return;
       }
-      
+
       final newPosts = querySnapshot.docs.map((doc) => {
-        'id': doc.id,
-        ...doc.data(),
-      }).toList();
-      
+            'id': doc.id,
+            ...doc.data(),
+          }).toList();
+
       setState(() {
         _posts.addAll(newPosts);
         _isLoading = false;
@@ -138,90 +138,277 @@ class _ExploreScreenState extends State<ExploreScreen> {
       });
     }
   }
-  
+
   Future<void> _refreshPosts() async {
     _lastDocument = null;
     await _loadPosts();
     return;
   }
 
+  // Helper method to get grid cross axis count based on screen width
+  int _getCrossAxisCount(double width) {
+    if (width > 1200) return 6;
+    if (width > 900) return 5;
+    if (width > 600) return 4;
+    return 3; // Default for mobile
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Get screen width for responsive grid
+    final screenWidth = MediaQuery.of(context).size.width;
+    final crossAxisCount = _getCrossAxisCount(screenWidth);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Explore'),
+        title: const Text(
+          'Explore',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        centerTitle: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () => context.go('/search'),
           ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _refreshPosts,
-        child: _isLoading && _posts.isEmpty
-            ? const Center(child: CircularProgressIndicator())
-            : _posts.isEmpty 
-                ? const Center(child: Text('No posts available'))
-                : GridView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(2),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      crossAxisSpacing: 2,
-                      mainAxisSpacing: 2,
-                    ),
-                    itemCount: _posts.length + (_hasMorePosts ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      // Show loading indicator at the end
-                      if (index == _posts.length) {
-                        return const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(8.0),
-                            child: CircularProgressIndicator(),
-                          ),
-                        );
-                      }
-                      
-                      final post = _posts[index];
-                      final imageUrl = post['imageUrl'];
-                      
-                      return GestureDetector(
-                        onTap: () {
-                          // Navigate to detailed view of the post
-                          context.push('/post/${post['id']}');
-                        },
-                        child: Hero(
-                          tag: 'post-${post['id']}',
-                          child: Container(
-                            color: Colors.grey.shade200,
-                            child: imageUrl != null && imageUrl.isNotEmpty
-                                ? Image.network(
-                                    "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
-                                    fit: BoxFit.cover,
-                                    loadingBuilder: (context, child, loadingProgress) {
-                                      if (loadingProgress == null) return child;
-                                      return Center(
-                                        child: CircularProgressIndicator(
-                                          value: loadingProgress.expectedTotalBytes != null
-                                              ? loadingProgress.cumulativeBytesLoaded / 
-                                                loadingProgress.expectedTotalBytes!
-                                              : null,
-                                        ),
-                                      );
-                                    },
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return const Icon(Icons.broken_image);
-                                    },
-                                  )
-                                : const Center(child: Icon(Icons.image)),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            onPressed: () {
+              // Show filter options in a modal bottom sheet
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (context) => Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
                           ),
                         ),
-                      );
-                    },
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Filter Posts',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Coming soon: Filter by category, date range, and more.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 40),
+                    ],
                   ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1400),
+          child: RefreshIndicator(
+            onRefresh: _refreshPosts,
+            child: _isLoading && _posts.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _posts.isEmpty
+                    ? _buildEmptyState()
+                    : ScrollConfiguration(
+                        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                        child: GridView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(4),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: crossAxisCount,
+                            crossAxisSpacing: 4,
+                            mainAxisSpacing: 4,
+                          ),
+                          itemCount: _posts.length + (_hasMorePosts ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            // Show loading indicator at the end
+                            if (index == _posts.length) {
+                              return Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue.shade300),
+                                ),
+                              );
+                            }
+
+                            final post = _posts[index];
+                            final imageUrl = post['imageUrl'];
+                            final username = post['username'] ?? 'Unknown';
+
+                            return GestureDetector(
+                              onTap: () {
+                                // Navigate to detailed view of the post
+                                context.push('/post/${post['id']}');
+                              },
+                              child: Hero(
+                                tag: 'post-${post['id']}',
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        blurRadius: 4,
+                                        spreadRadius: 0,
+                                      ),
+                                    ],
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        imageUrl != null && imageUrl.isNotEmpty
+                                            ? Image.network(
+                                                "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
+                                                fit: BoxFit.cover,
+                                                loadingBuilder: (context, child, loadingProgress) {
+                                                  if (loadingProgress == null) return child;
+                                                  return Container(
+                                                    color: Colors.grey.shade200,
+                                                    child: Center(
+                                                      child: CircularProgressIndicator(
+                                                        value: loadingProgress.expectedTotalBytes != null
+                                                            ? loadingProgress.cumulativeBytesLoaded /
+                                                                loadingProgress.expectedTotalBytes!
+                                                            : null,
+                                                        strokeWidth: 2,
+                                                        color: Colors.blue.shade300,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                                errorBuilder: (context, error, stackTrace) {
+                                                  return Container(
+                                                    color: Colors.grey.shade200,
+                                                    child: const Icon(Icons.broken_image, color: Colors.grey),
+                                                  );
+                                                },
+                                              )
+                                            : Container(
+                                                color: Colors.grey.shade200,
+                                                child: const Icon(Icons.image, color: Colors.grey),
+                                              ),
+                                        // Gradient overlay at bottom for text
+                                        Positioned(
+                                          left: 0,
+                                          right: 0,
+                                          bottom: 0,
+                                          height: 50,
+                                          child: Container(
+                                            decoration: const BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: Alignment.bottomCenter,
+                                                end: Alignment.topCenter,
+                                                colors: [
+                                                  Colors.black54,
+                                                  Colors.transparent,
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        // Username at bottom
+                                        Positioned(
+                                          left: 8,
+                                          right: 8,
+                                          bottom: 8,
+                                          child: Text(
+                                            username,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              shadows: [
+                                                Shadow(
+                                                  blurRadius: 2,
+                                                  color: Colors.black54,
+                                                ),
+                                              ],
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+          ),
+        ),
       ),
       bottomNavigationBar: const BottomNavBar(),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.explore_off_outlined,
+            size: 80,
+            color: Colors.grey.shade300,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No posts available to explore',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Check back later for new content',
+            style: TextStyle(
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 24),
+          TextButton.icon(
+            onPressed: _refreshPosts,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Refresh'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.blue,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

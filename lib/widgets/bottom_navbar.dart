@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class BottomNavBar extends StatefulWidget {
-  // Remove the accountType parameter, we'll get it from SharedPreferences
   const BottomNavBar({super.key});
 
   @override
@@ -49,84 +48,131 @@ class _BottomNavBarState extends State<BottomNavBar> {
       return const SizedBox(height: 0); // Return empty widget while loading
     }
     
-    // Define navigation items based on account type
-    List<BottomNavigationBarItem> getNavItems() {
-      // Base items for all account types
-      final List<BottomNavigationBarItem> baseItems = [
-        const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-        const BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
-        const BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Explore'),
-        const BottomNavigationBarItem(icon: Icon(Icons.shop), label: 'Shop'),
-      ];
-
-      // For influencer and organization accounts, add Collaborations before Profile
-      if (_currentUserAccountType.toLowerCase() == 'influencer' || 
-          _currentUserAccountType.toLowerCase() == 'organization') {
-        return [
-          ...baseItems,
-          const BottomNavigationBarItem(icon: Icon(Icons.handshake), label: 'Collabs'),
-          const BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
-        ];
-      } else {
-        // For personal accounts, just add Profile
-        return [
-          ...baseItems,
-          const BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
-        ];
-      }
+    final currentIndex = _getCurrentIndex(context);
+    final isBusinessAccount = _currentUserAccountType.toLowerCase() == 'influencer' || 
+                             _currentUserAccountType.toLowerCase() == 'organization';
+                             
+    // Define navigation items with their icons, labels and routes
+    final List<Map<String, dynamic>> navItems = [
+      {'icon': Icons.home_outlined, 'activeIcon': Icons.home, 'label': 'Home', 'route': '/home'},
+      {'icon': Icons.search_outlined, 'activeIcon': Icons.search, 'label': 'Search', 'route': '/search'},
+      {'icon': Icons.explore_outlined, 'activeIcon': Icons.explore, 'label': 'Explore', 'route': '/explore'},
+      {'icon': Icons.shopping_bag_outlined, 'activeIcon': Icons.shopping_bag, 'label': 'Shop', 'route': '/shop'},
+    ];
+    
+    // Add business-specific items
+    if (isBusinessAccount) {
+      navItems.add({
+        'icon': Icons.handshake_outlined, 
+        'activeIcon': Icons.handshake, 
+        'label': 'Collabs', 
+        'route': '/collaborations'
+      });
     }
-
-    return BottomNavigationBar(
-      type: BottomNavigationBarType.fixed,
-      items: getNavItems(),
-      onTap: (index) {
-        final bool isBusinessAccount = _currentUserAccountType.toLowerCase() == 'influencer' || 
-                                       _currentUserAccountType.toLowerCase() == 'organization';
-                                       
-        // For business accounts with 6 items
-        if (isBusinessAccount) {
-          switch (index) {
-            case 0:
-              context.go('/home');
-              break;
-            case 1:
-              context.go('/search');
-              break;
-            case 2:
-              context.go('/explore');
-              break;
-            case 3:
-              context.go('/shop');
-              break;
-            case 4:
-              context.go('/collaborations'); // Extra option
-              break;
-            case 5:
-              context.go('/profile');
-              break;
-          }
-        } else {
-          // For personal accounts with 5 items
-          switch (index) {
-            case 0:
-              context.go('/home');
-              break;
-            case 1:
-              context.go('/search');
-              break;
-            case 2:
-              context.go('/explore');
-              break;
-            case 3:
-              context.go('/shop');
-              break;
-            case 4:
-              context.go('/profile');
-              break;
-          }
-        }
-      },
-      currentIndex: _getCurrentIndex(context),
+    
+    // Add profile for all users
+    navItems.add({
+      'icon': Icons.person_outline, 
+      'activeIcon': Icons.person, 
+      'label': 'Profile', 
+      'route': '/profile'
+    });
+    
+    // Build the custom floating navbar
+    return Container(
+      height: 80,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 600), // Limit width on large screens
+          child: PhysicalModel(
+            color: Colors.transparent,
+            elevation: 8,
+            borderRadius: BorderRadius.circular(30),
+            shadowColor: Colors.black.withOpacity(0.3),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blue.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 5),
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: List.generate(
+                  navItems.length,
+                  (index) => _buildNavItem(
+                    context: context,
+                    icon: navItems[index]['icon'],
+                    activeIcon: navItems[index]['activeIcon'],
+                    label: navItems[index]['label'],
+                    route: navItems[index]['route'],
+                    isActive: index == currentIndex,
+                    onTap: () => context.go(navItems[index]['route']),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  // Helper method to build each nav item
+  Widget _buildNavItem({
+    required BuildContext context,
+    required IconData icon,
+    required IconData activeIcon,
+    required String label,
+    required String route,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(
+          horizontal: isActive ? 12 : 8,
+          vertical: 6,
+        ),
+        decoration: BoxDecoration(
+          color: isActive ? Colors.blue.shade50 : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isActive ? activeIcon : icon,
+              size: 22,
+              color: isActive ? Colors.blue.shade700 : Colors.grey.shade700,
+            ),
+            if (isActive) ...[
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.blue.shade700,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
   
