@@ -122,8 +122,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       print("Creating user in Firebase Auth...");
       // Create user
-      final UserCredential userCredential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      final UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
@@ -133,16 +132,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       // Save to Firestore immediately (don't delay this)
       try {
         print("Saving user data to Firestore...");
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userCredential.user?.uid)
-            .set({
+        await FirebaseFirestore.instance.collection('users').doc(userCredential.user?.uid).set({
           'email': _emailController.text.trim(),
           'username': username, // Use the lowercase username
           'accountType': _selectedAccountType,
           'createdAt': FieldValue.serverTimestamp(),
           'profileImageUrl': '', // Add default empty profileImageUrl
-          'isVerified': false, // Add default verification status
+          'isVerified': false,  // Add default verification status
         });
         print("User data saved to Firestore successfully!");
 
@@ -160,6 +156,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           final userService = Provider.of<UserService>(context, listen: false);
           await userService.initUserData();
         }
+
       } catch (firestoreError) {
         print("Error saving to Firestore: $firestoreError");
         // Continue with navigation even if Firestore save fails
@@ -184,6 +181,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           context.go('/home');
         }
       }
+
     } on FirebaseAuthException catch (e) {
       // Error handling stays the same
       print('Firebase Auth Exception: ${e.code} - ${e.message}');
@@ -257,8 +255,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: ConstrainedBox(
-                constraints:
-                    const BoxConstraints(maxWidth: 400), // Limit the width
+                constraints: const BoxConstraints(maxWidth: 400), // Limit the width
                 child: Form(
                   key: _formKey,
                   child: Column(
@@ -351,7 +348,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-
+                      
                       // Account Type Dropdown
                       DropdownButtonFormField<String>(
                         value: _selectedAccountType,
@@ -360,24 +357,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             value: 'Personal',
                             child: Text(
                               'Personal',
-                              style: TextStyle(
-                                  color: Colors.black), // Set text color
+                              style: TextStyle(color: Colors.black), // Set text color
                             ),
                           ),
                           DropdownMenuItem(
                             value: 'Influencer',
                             child: Text(
                               'Influencer',
-                              style: TextStyle(
-                                  color: Colors.black), // Set text color
+                              style: TextStyle(color: Colors.black), // Set text color
                             ),
                           ),
                           DropdownMenuItem(
                             value: 'Organization',
                             child: Text(
                               'Organization',
-                              style: TextStyle(
-                                  color: Colors.black), // Set text color
+                              style: TextStyle(color: Colors.black), // Set text color
                             ),
                           ),
                         ],
@@ -400,10 +394,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             horizontal: 16,
                           ),
                         ),
-                        dropdownColor:
-                            Colors.white, // Set dropdown background color
-                        style: const TextStyle(
-                            color: Colors.black), // Set selected text color
+                        dropdownColor: Colors.white, // Set dropdown background color
+                        style: const TextStyle(color: Colors.black), // Set selected text color
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please select an account type';
@@ -435,8 +427,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your email';
                           }
-                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                              .hasMatch(value)) {
+                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
                             return 'Please enter a valid email';
                           }
                           return null;
@@ -505,8 +496,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       const SizedBox(height: 24),
                       // Register Button
                       ElevatedButton(
-                        onPressed:
-                            _isLoading ? null : _registerWithEmailAndPassword,
+                        onPressed: _isLoading ? null : _registerWithEmailAndPassword,
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
@@ -517,8 +507,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         child: _isLoading
                             ? const CircularProgressIndicator(
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.blue),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.blue),
                               )
                             : const Text(
                                 'Register',

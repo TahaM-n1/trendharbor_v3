@@ -1,2 +1,0 @@
-D:/JUNIOR/trendharbor_v3/android/app/.cxx/Debug/446z2e4u/armeabi-v7a/CMakeFiles/edit_cache.dir
-D:/JUNIOR/trendharbor_v3/android/app/.cxx/Debug/446z2e4u/armeabi-v7a/CMakeFiles/rebuild_cache.dir
