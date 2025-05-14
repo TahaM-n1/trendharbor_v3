@@ -1,227 +1,617 @@
+// lib/screens/create_campaign_screen.dart
 import 'package:flutter/material.dart';
-import '../widgets/bottom_navbar.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class CollaborationsScreen extends StatefulWidget {
-  const CollaborationsScreen({super.key});
+enum PaymentType { escrow, upfront }
+
+class CreateCampaignScreen extends StatefulWidget {
+  const CreateCampaignScreen({super.key});
 
   @override
-  State<CollaborationsScreen> createState() => _CollaborationsScreenState();
+  State<CreateCampaignScreen> createState() => _CreateCampaignScreenState();
 }
 
-class _CollaborationsScreenState extends State<CollaborationsScreen> {
+class _CreateCampaignScreenState extends State<CreateCampaignScreen>
+    with TickerProviderStateMixin {
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  DateTime? _startDate;
+  DateTime? _endDate;
+  PaymentType _paymentType = PaymentType.escrow;
+  String? _selectedProductId;
+  List<String> _selectedInfluencerIds = [];
+  List<Map<String, dynamic>> _userProducts = [];
+  List<Map<String, dynamic>> _availableInfluencers = [];
+  bool _isLoading = true;
   String _accountType = 'personal';
-  
+
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
     _loadUserData();
   }
-  
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _animationController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
+    setState(() {
+      _accountType = prefs.getString('accountType') ?? 'personal';
+    });
+
+    // Check if user is authorized to create campaigns
+    if (_accountType.toLowerCase() != 'organization') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showUnauthorizedDialog();
+      });
+      return;
+    }
+
+    _loadData();
+  }
+
+  void _showUnauthorizedDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.block, color: Colors.red.shade400, size: 28),
+              const SizedBox(width: 12),
+              const Text('Access Denied'),
+            ],
+          ),
+          content: const Text(
+            'Only Organization accounts can create campaigns. Influencers can accept campaign invitations.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // Close dialog
+                Navigator.of(context).pop(); // Go back to previous screen
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Go Back'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+
+    try {
+      await Future.wait([
+        _loadUserProducts(),
+        _loadInfluencers(),
+      ]);
+      _animationController.forward();
+    } catch (e) {
+      print('Error loading data: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading data: $e'),
+            backgroundColor: Colors.red.shade400,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loadUserProducts() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
+    try {
+      final productsSnapshot = await FirebaseFirestore.instance
+          .collection('products')
+          .where('sellerId', isEqualTo: userId)
+          .get();
+
+      _userProducts = productsSnapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'name': data['name'] ?? '',
+          'price': data['price'] ?? 0.0,
+          'imageUrls': List<String>.from(data['imageUrls'] ?? []),
+          'description': data['description'] ?? '',
+        };
+      }).toList();
+    } catch (e) {
+      print('Error loading products: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _loadInfluencers() async {
+    try {
+      final influencersSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('accountType', isEqualTo: 'Influencer')
+          .get();
+
+      _availableInfluencers = influencersSnapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'username': data['username'] ?? 'Unknown',
+          'profileImageUrl': data['profileImageUrl'] ?? '',
+          'accountType': data['accountType'] ?? 'Influencer',
+        };
+      }).toList();
+    } catch (e) {
+      print('Error loading influencers: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _selectDate(BuildContext context, bool isStartDate) async {
+    final DateTime initialDate = isStartDate
+        ? _startDate ?? DateTime.now()
+        : _endDate ?? _startDate ?? DateTime.now();
+
+    final DateTime firstDate =
+        isStartDate ? DateTime.now() : _startDate ?? DateTime.now();
+
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+                  primary: Colors.deepPurple,
+                  onPrimary: Colors.white,
+                  surface: Colors.white,
+                  onSurface: Colors.black,
+                ),
+            dialogBackgroundColor: Colors.white,
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
       setState(() {
-        _accountType = prefs.getString('accountType') ?? 'personal';
+        if (isStartDate) {
+          _startDate = picked;
+          if (_endDate != null && _endDate!.isBefore(picked)) {
+            _endDate = null;
+          }
+        } else {
+          _endDate = picked;
+        }
       });
     }
   }
 
-  Future<void> _showSearchCollaborationsDialog(BuildContext context) async {
-    final TextEditingController searchController = TextEditingController();
-    
-    final String targetAccountType = _accountType == 'Influencer' ? 'Organization' : 'Influencer';
-    
-    List<Map<String, dynamic>> allAccounts = [];
-    List<Map<String, dynamic>> filteredAccounts = [];
-    
-    bool isLoading = true;
-    String? errorMessage;
-    
-    void searchAccounts(String query) {
-      if (query.isEmpty) {
-        filteredAccounts = List.from(allAccounts);
-      } else {
-        filteredAccounts = allAccounts
-          .where((account) => 
-            account['username'].toString().toLowerCase().contains(query.toLowerCase()))
-          .toList();
-      }
-    }
-    
-    try {
-      final accountsSnapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .where('accountType', isEqualTo: targetAccountType)
-        .limit(50)
-        .get();
-      
-      allAccounts = accountsSnapshot.docs
-        .map((doc) {
-          final data = doc.data();
-          return {
-            'id': doc.id,
-            'username': data['username'] ?? 'Unknown',
-            'profileImageUrl': data.containsKey('profileImageUrl') ? data['profileImageUrl'] : '',
-            'accountType': data['accountType'] ?? targetAccountType,
-          };
-        })
-        .toList();
-      
-      filteredAccounts = List.from(allAccounts);
-      isLoading = false;
-    } catch (e) {
-      print('Error loading accounts: $e');
-      errorMessage = 'Error loading accounts: $e';
-      isLoading = false;
-    }
-    
-    if (!context.mounted) return;
-    
-    Map<String, dynamic>? selectedAccount;
-    
-    showDialog(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: Text('Find ${targetAccountType}s'),
-              content: SizedBox(
-                width: double.maxFinite,
-                height: 500,
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: searchController,
-                      decoration: InputDecoration(
-                        hintText: 'Search for ${targetAccountType.toLowerCase()}s...',
-                        prefixIcon: const Icon(Icons.search),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8.0),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                      ),
-                      onChanged: (value) {
-                        setState(() {
-                          searchAccounts(value);
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    
-                    Expanded(
-                      child: isLoading 
-                        ? const Center(child: CircularProgressIndicator())
-                        : errorMessage != null
-                          ? Center(child: Text(errorMessage!))
-                          : filteredAccounts.isEmpty
-                            ? Center(child: Text('No ${targetAccountType.toLowerCase()}s found'))
-                            : ListView.builder(
-                                itemCount: filteredAccounts.length,
-                                itemBuilder: (context, index) {
-                                  final account = filteredAccounts[index];
-                                  final bool isSelected = selectedAccount != null && 
-                                                         selectedAccount!['id'] == account['id'];
-                                  
-                                  return ListTile(
-                                    leading: _buildAccountAvatar(account),
-                                    title: Text(account['username']),
-                                    subtitle: Text(account['accountType']),
-                                    selected: isSelected,
-                                    tileColor: isSelected ? Colors.blue.withOpacity(0.1) : null,
-                                    onTap: () {
-                                      setState(() {
-                                        selectedAccount = isSelected ? null : account;
-                                      });
-                                    },
-                                  );
-                                },
-                              ),
-                    ),
-                    
-                    if (selectedAccount != null) ...[
-                      const Divider(),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Create a Proposal for ${selectedAccount!['username']}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 10),
-                      
-                      TextField(
-                        decoration: const InputDecoration(
-                          labelText: 'Budget',
-                          prefixIcon: Icon(Icons.attach_money),
-                          border: OutlineInputBorder(),
-                          hintText: 'Enter proposed budget',
-                        ),
-                        keyboardType: TextInputType.number,
-                        onChanged: (value) {
-                          selectedAccount!['budget'] = value;
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      
-                      TextField(
-                        decoration: const InputDecoration(
-                          labelText: 'Description',
-                          prefixIcon: Icon(Icons.description),
-                          border: OutlineInputBorder(),
-                          hintText: 'Describe your collaboration proposal',
-                        ),
-                        maxLines: 3,
-                        onChanged: (value) {
-                          selectedAccount!['description'] = value;
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      
-                      ElevatedButton(
-                        onPressed: () {
-                          _sendCollaborationProposal(
-                            context: dialogContext, 
-                            targetUserId: selectedAccount!['id'],
-                            targetUsername: selectedAccount!['username'],
-                            budget: selectedAccount!['budget'] ?? '',
-                            description: selectedAccount!['description'] ?? '',
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).primaryColor,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 50),
-                        ),
-                        child: const Text('Send Proposal'),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-              ],
-            );
-          }
-        );
-      },
-    ).then((_) {
-      searchController.dispose();
-    });
+  Widget _buildGradientCard({required Widget child}) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            Colors.purple.shade50.withOpacity(0.3),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
   }
 
-  Widget _buildAccountAvatar(Map<String, dynamic> account) {
-    if (account['profileImageUrl'] == null || account['profileImageUrl'].isEmpty) {
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.deepPurple, Colors.purple.shade300],
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProductSelector() {
+    if (_userProducts.isEmpty) {
+      return _buildGradientCard(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Icon(
+                  Icons.shopping_bag_outlined,
+                  size: 60,
+                  color: Colors.orange.shade400,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No products found',
+                style: TextStyle(
+                  color: Colors.grey[700],
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'You need to have products to create a campaign',
+                style: TextStyle(
+                  color: Colors.grey[500],
+                  fontSize: 14,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return _buildGradientCard(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionHeader('Select Product', Icons.inventory_2),
+            const SizedBox(height: 16),
+            ...(_userProducts.map((product) {
+              final isSelected = _selectedProductId == product['id'];
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                margin: const EdgeInsets.only(bottom: 12),
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedProductId = product['id'];
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: isSelected
+                          ? LinearGradient(
+                              colors: [
+                                Colors.deepPurple.withOpacity(0.1),
+                                Colors.purple.shade50,
+                              ],
+                            )
+                          : null,
+                      color: isSelected ? null : Colors.grey.shade50,
+                      border: Border.all(
+                        color: isSelected
+                            ? Colors.deepPurple
+                            : Colors.grey.shade200,
+                        width: isSelected ? 2 : 1,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Hero(
+                          tag: 'product-${product['id']}',
+                          child: Container(
+                            width: 70,
+                            height: 70,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.2),
+                                  spreadRadius: 1,
+                                  blurRadius: 5,
+                                ),
+                              ],
+                            ),
+                            child: _buildProductImage(product),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                product['name'],
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '\$${product['price'].toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  color: Colors.green.shade600,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (isSelected)
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.deepPurple,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            })),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProductImage(Map<String, dynamic> product) {
+    final imageUrls = product['imageUrls'] as List<String>;
+    if (imageUrls.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.network(
+          imageUrls[0],
+          fit: BoxFit.cover,
+          width: 70,
+          height: 70,
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              color: Colors.grey.shade200,
+              child: Icon(Icons.image_not_supported, color: Colors.grey[400]),
+            );
+          },
+        ),
+      );
+    } else {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(Icons.image, color: Colors.grey[400]),
+      );
+    }
+  }
+
+  Widget _buildInfluencerSelector() {
+    if (_availableInfluencers.isEmpty) {
+      return _buildGradientCard(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Icon(
+                  Icons.people_outline,
+                  size: 60,
+                  color: Colors.blue.shade400,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No influencers found',
+                style: TextStyle(
+                  color: Colors.grey[700],
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final bool allSelected =
+        _selectedInfluencerIds.length == _availableInfluencers.length;
+
+    return _buildGradientCard(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildSectionHeader('Select Influencers', Icons.people),
+                Row(
+                  children: [
+                    Checkbox(
+                      value: allSelected,
+                      onChanged: (value) {
+                        setState(() {
+                          if (value == true) {
+                            _selectedInfluencerIds = _availableInfluencers
+                                .map((i) => i['id'] as String)
+                                .toList();
+                          } else {
+                            _selectedInfluencerIds.clear();
+                          }
+                        });
+                      },
+                      activeColor: Colors.deepPurple,
+                    ),
+                    const Text(
+                      'Select All',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${_selectedInfluencerIds.length} of ${_availableInfluencers.length} selected',
+                style: TextStyle(
+                  color: Colors.blue.shade700,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: _availableInfluencers.map((influencer) {
+                    final isSelected =
+                        _selectedInfluencerIds.contains(influencer['id']);
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: CheckboxListTile(
+                        value: isSelected,
+                        onChanged: (value) {
+                          setState(() {
+                            if (value == true) {
+                              _selectedInfluencerIds.add(influencer['id']);
+                            } else {
+                              _selectedInfluencerIds.remove(influencer['id']);
+                            }
+                          });
+                        },
+                        title: Text(
+                          influencer['username'],
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                        subtitle: Text(
+                          influencer['accountType'],
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                        secondary: _buildInfluencerAvatar(influencer),
+                        dense: true,
+                        activeColor: Colors.deepPurple,
+                        checkboxShape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        tileColor: isSelected
+                            ? Colors.deepPurple.withOpacity(0.05)
+                            : null,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfluencerAvatar(Map<String, dynamic> influencer) {
+    final profileImageUrl = influencer['profileImageUrl'] as String;
+
+    if (profileImageUrl.isEmpty) {
       return CircleAvatar(
-        backgroundColor: Colors.blue.shade200,
+        backgroundColor: Colors.deepPurple.shade200,
         child: Text(
-          account['username'].toString().isNotEmpty 
-              ? account['username'].toString()[0].toUpperCase() 
+          influencer['username'].toString().isNotEmpty
+              ? influencer['username'].toString()[0].toUpperCase()
               : '?',
           style: const TextStyle(
             color: Colors.white,
@@ -230,1193 +620,594 @@ class _CollaborationsScreenState extends State<CollaborationsScreen> {
         ),
       );
     }
-    
+
     return CircleAvatar(
-      backgroundImage: account['profileImageUrl'].startsWith('assets/')
-          ? AssetImage(account['profileImageUrl'])
-          : NetworkImage(account['profileImageUrl']) as ImageProvider,
+      backgroundImage: NetworkImage(profileImageUrl),
+      backgroundColor: Colors.deepPurple.shade200,
+      onBackgroundImageError: (exception, stackTrace) {},
     );
   }
 
-  Future<void> _sendCollaborationProposal({
-    required BuildContext context,
-    required String targetUserId,
-    required String targetUsername,
-    required String budget,
-    required String description,
-  }) async {
+  bool _validateForm() {
+    if (_titleController.text.trim().isEmpty) {
+      _showErrorSnackBar('Please enter a campaign title');
+      return false;
+    }
+
+    if (_descriptionController.text.trim().isEmpty) {
+      _showErrorSnackBar('Please enter a campaign description');
+      return false;
+    }
+
+    if (_startDate == null) {
+      _showErrorSnackBar('Please select a start date');
+      return false;
+    }
+
+    if (_endDate == null) {
+      _showErrorSnackBar('Please select an end date');
+      return false;
+    }
+
+    if (_selectedProductId == null) {
+      _showErrorSnackBar('Please select a product');
+      return false;
+    }
+
+    if (_selectedInfluencerIds.isEmpty) {
+      _showErrorSnackBar('Please select at least one influencer');
+      return false;
+    }
+
+    return true;
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red.shade400,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+
+  Future<void> _saveCampaign() async {
+    if (!_validateForm()) return;
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
+      builder: (context) => Center(
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Creating campaign...',
+                style: TextStyle(
+                  color: Colors.grey[700],
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
 
     try {
-      // Get current user ID
-      final User? currentUser = FirebaseAuth.instance.currentUser;
-      
-      if (currentUser == null) {
-        throw Exception('You must be logged in to send a proposal');
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      if (userId == null) throw Exception('User not authenticated');
+
+      // Create the campaignOffer map with all influencers set to false
+      Map<String, bool> campaignOffer = {};
+      for (String influencerId in _selectedInfluencerIds) {
+        campaignOffer[influencerId] = false;
       }
-      
-      // Get current user data
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .get();
-      
-      final String currentUsername = userDoc.data()?['username'] ?? 'Unknown User';
-      
-      // Create a Timestamp for the current time (client-side)
-      final Timestamp now = Timestamp.now();
-      
-      // Create collaboration proposal
-      final proposalData = {
-        'senderId': currentUser.uid,
-        'senderUsername': currentUsername,
-        'senderAccountType': _accountType,
-        'recipientId': targetUserId,
-        'recipientUsername': targetUsername,
-        'recipientAccountType': _accountType == 'Influencer' ? 'Organization' : 'Influencer',
-        'budget': budget,
-        'description': description,
+
+      final campaignData = {
+        'title': _titleController.text.trim(),
+        'description': _descriptionController.text.trim(),
+        'productId': _selectedProductId!,
+        'startDate': Timestamp.fromDate(_startDate!),
+        'endDate': Timestamp.fromDate(_endDate!),
+        'paymentType': _paymentType.toString().split('.').last,
+        'invitedInfluencers': _selectedInfluencerIds,
+        'campaignOffer': campaignOffer,
+        'influencerBids': {}, // Initialize empty bids map
+        'createdBy': userId,
+        'createdAt': FieldValue.serverTimestamp(),
         'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(), // This is fine outside of arrays
-        'updatedAt': FieldValue.serverTimestamp(), // This is fine outside of arrays
-        'messages': [
-          {
-            'senderId': currentUser.uid,
-            'text': 'I would like to collaborate with you.',
-            'timestamp': now, // Use client-side timestamp for array elements
-          }
-        ],
       };
-      
-      // Add to collaborations collection
-      await FirebaseFirestore.instance
-          .collection('collaborations')
-          .add(proposalData);
-      
-      // Close loading dialog and previous dialog
-      if (context.mounted) {
-        Navigator.of(context).pop(); // Close loading
-        Navigator.of(context).pop(); // Close search dialog
-        
-        // Show success message
+
+      // Create the campaign document
+      final campaignDoc = await FirebaseFirestore.instance
+          .collection('campaigns')
+          .add(campaignData);
+
+      // Update each invited influencer's userCampaigns field
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (String influencerId in _selectedInfluencerIds) {
+        final userDocRef =
+            FirebaseFirestore.instance.collection('users').doc(influencerId);
+
+        batch.update(userDocRef, {
+          'userCampaigns.${campaignDoc.id}': false,
+        });
+      }
+
+      // Commit the batch
+      await batch.commit();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        Navigator.of(context).pop(); // Go back to campaigns screen
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Proposal sent to $targetUsername'),
-            backgroundColor: Colors.green,
+            content: const Text('Campaign created successfully'),
+            backgroundColor: Colors.green.shade400,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
         );
       }
     } catch (e) {
-      // Close loading dialog
-      if (context.mounted) {
-        Navigator.of(context).pop();
-        
-        // Show error message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error sending proposal: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+      print('Error saving campaign: $e');
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        _showErrorSnackBar('Error creating campaign: $e');
       }
-      print('Error sending proposal: $e');
     }
   }
-
-  Future<void> _respondToProposal({
-    required String collaborationId,
-    required bool accept,
-  }) async {
-    try {
-      final Timestamp now = Timestamp.now();
-      final User? currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return;
-      
-      if (accept) {
-        // When accepting a proposal, check if the current user is an organization
-        final bool isOrganization = _accountType.toLowerCase() == 'organization';
-        
-        // If organization is accepting, set status to "escrow_pending"
-        // If influencer is accepting, set status to "escrow_pending"
-        // Either way, escrow payment is pending from organization
-        final String newStatus = 'escrow_pending';
-        final String message = 'I have accepted your collaboration proposal! Escrow payment is pending.';
-        
-        await FirebaseFirestore.instance
-            .collection('collaborations')
-            .doc(collaborationId)
-            .update({
-              'status': newStatus,
-              'updatedAt': FieldValue.serverTimestamp(),
-              'acceptedBy': currentUser.uid,
-              'acceptedAt': FieldValue.serverTimestamp(),
-              'messages': FieldValue.arrayUnion([
-                {
-                  'senderId': currentUser.uid,
-                  'text': message,
-                  'timestamp': now,
-                }
-              ])
-            });
-      } else {
-        // Declining a proposal - no changes needed
-        await FirebaseFirestore.instance
-            .collection('collaborations')
-            .doc(collaborationId)
-            .update({
-              'status': 'declined',
-              'updatedAt': FieldValue.serverTimestamp(),
-              'messages': FieldValue.arrayUnion([
-                {
-                  'senderId': currentUser.uid,
-                  'text': 'I have declined your collaboration proposal.',
-                  'timestamp': now,
-                }
-              ])
-            });
-      }
-      
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Proposal ${accept ? 'accepted' : 'declined'}'),
-            backgroundColor: accept ? Colors.green : Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      print('Error responding to proposal: $e');
-    }
-  }
-
-  Future<void> _showCounterProposalDialog(
-    BuildContext context, 
-    String collaborationId,
-    Map<String, dynamic> originalProposal,
-  ) async {
-    final TextEditingController budgetController = TextEditingController(text: originalProposal['budget']);
-    final TextEditingController descriptionController = TextEditingController(text: originalProposal['description']);
-    
-    showDialog(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: const Text('Counter Proposal'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: budgetController,
-                  decoration: const InputDecoration(
-                    labelText: 'Budget',
-                    prefixIcon: Icon(Icons.attach_money),
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(
-                    labelText: 'Description',
-                    prefixIcon: Icon(Icons.description),
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 3,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                _submitCounterProposal(
-                  collaborationId: collaborationId,
-                  budget: budgetController.text,
-                  description: descriptionController.text,
-                );
-                Navigator.pop(dialogContext);
-              },
-              child: const Text('Send Counter'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _submitCounterProposal({
-    required String collaborationId,
-    required String budget,
-    required String description,
-  }) async {
-    try {
-      final Timestamp now = Timestamp.now(); // Use client-side timestamp
-      
-      await FirebaseFirestore.instance
-          .collection('collaborations')
-          .doc(collaborationId)
-          .update({
-            'budget': budget,
-            'description': description,
-            'status': 'counter',
-            'updatedAt': FieldValue.serverTimestamp(),
-            'counterOfferedBy': FirebaseAuth.instance.currentUser?.uid,
-            'messages': FieldValue.arrayUnion([
-              {
-                'senderId': FirebaseAuth.instance.currentUser?.uid,
-                'text': 'I have sent you a counter proposal.',
-                'timestamp': now, // Use client-side timestamp for array elements
-              }
-            ])
-          });
-      
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Counter proposal sent'),
-            backgroundColor: Colors.blue,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      print('Error sending counter proposal: $e');
-    }
-  }
-
-  Future<void> _showEscrowPaymentDialog(String collaborationId) async {
-    showDialog(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: const Text('Make Escrow Payment'),
-          content: const Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.account_balance_wallet, size: 60, color: Colors.blue),
-              SizedBox(height: 16),
-              Text(
-                'This simulates an escrow payment for the collaboration.',
-                textAlign: TextAlign.center,
-              ),
-              SizedBox(height: 8),
-              Text(
-                'In a real application, this would connect to a payment processor.',
-                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text('Back'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _makeEscrowPayment(collaborationId);
-              },
-              child: const Text('Payment Done'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _makeEscrowPayment(String collaborationId) async {
-    try {
-      final Timestamp now = Timestamp.now();
-      final User? currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return;
-      
-      await FirebaseFirestore.instance
-          .collection('collaborations')
-          .doc(collaborationId)
-          .update({
-            'status': 'in_progress',
-            'updatedAt': FieldValue.serverTimestamp(),
-            'escrowPaidBy': currentUser.uid,
-            'escrowPaidAt': FieldValue.serverTimestamp(),
-            'messages': FieldValue.arrayUnion([
-              {
-                'senderId': currentUser.uid,
-                'text': 'I have made the escrow payment. The collaboration is now in progress.',
-                'timestamp': now,
-              }
-            ])
-          });
-      
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Escrow payment completed'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      print('Error making escrow payment: $e');
-    }
-  }
-
-
-
-  
-  Future<void> _markCollaborationAsCompleted(String collaborationId) async {
-    try {
-      final Timestamp now = Timestamp.now();
-      final User? currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return;
-      
-      // Get the collaboration document
-      final collaborationDoc = await FirebaseFirestore.instance
-          .collection('collaborations')
-          .doc(collaborationId)
-          .get();
-      
-      final collabData = collaborationDoc.data() as Map<String, dynamic>?;
-      if (collabData == null) return;
-      
-      // Check if current user is influencer or organization
-      final bool isInfluencer = _accountType.toLowerCase() == 'influencer';
-      
-      // If influencer, set status to "pending_completion", otherwise set to "completed"
-      final String newStatus = isInfluencer ? 'pending_completion' : 'completed';
-      final String message = isInfluencer 
-          ? 'I have marked this collaboration as completed. Awaiting confirmation.' 
-          : 'I have marked this collaboration as completed.';
-      
-      // Set the appropriate fields based on user type
-      final Map<String, dynamic> updateData = {
-        'status': newStatus,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'messages': FieldValue.arrayUnion([
-          {
-            'senderId': currentUser.uid,
-            'text': message,
-            'timestamp': now,
-          }
-        ])
-      };
-      
-      // If organization is completing, add completedAt field
-      if (!isInfluencer) {
-        updateData['completedAt'] = FieldValue.serverTimestamp();
-      } else {
-        // If influencer is completing, record who initiated completion
-        updateData['completionRequestedBy'] = currentUser.uid;
-        updateData['completionRequestedAt'] = FieldValue.serverTimestamp();
-      }
-      
-      // Update the document
-      await FirebaseFirestore.instance
-          .collection('collaborations')
-          .doc(collaborationId)
-          .update(updateData);
-      
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(isInfluencer 
-                ? 'Completion request sent to organization' 
-                : 'Collaboration marked as completed'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      print('Error marking collaboration as completed: $e');
-    }
-  }
-  
-  Future<void> _confirmCompletionRequest(String collaborationId) async {
-    try {
-      final Timestamp now = Timestamp.now();
-      final User? currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return;
-      
-      await FirebaseFirestore.instance
-          .collection('collaborations')
-          .doc(collaborationId)
-          .update({
-            'status': 'completed',
-            'completedAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-            'completionConfirmedBy': currentUser.uid,
-            'completionConfirmedAt': FieldValue.serverTimestamp(),
-            'messages': FieldValue.arrayUnion([
-              {
-                'senderId': currentUser.uid,
-                'text': 'I have confirmed the completion of this collaboration.',
-                'timestamp': now,
-              }
-            ])
-          });
-      
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Collaboration marked as completed'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      print('Error confirming completion: $e');
-    }
-  }
-  
-  Future<void> _declineCompletionRequest(String collaborationId) async {
-    try {
-      final Timestamp now = Timestamp.now();
-      final User? currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return;
-      
-      await FirebaseFirestore.instance
-          .collection('collaborations')
-          .doc(collaborationId)
-          .update({
-            'status': 'in_progress', // Reset status back to in_progress
-            'updatedAt': FieldValue.serverTimestamp(),
-            'messages': FieldValue.arrayUnion([
-              {
-                'senderId': currentUser.uid,
-                'text': 'I have declined the completion request. The collaboration is still in progress.',
-                'timestamp': now,
-              }
-            ])
-          });
-      
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Completion request declined'),
-            backgroundColor: Colors.blue,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      print('Error declining completion: $e');
-    }
-  }
-
-
-
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
+    // Show loading or unauthorized access check
+    if (_accountType.toLowerCase() != 'organization') {
+      return Scaffold(
+        backgroundColor: Colors.grey.shade50,
         appBar: AppBar(
-          title: const Text('Collaborations'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Pending'),
-              Tab(text: 'Ongoing'),
-              Tab(text: 'Completed'),
-            ],
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          flexibleSpace: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.deepPurple, Colors.purple.shade300],
+              ),
+            ),
+          ),
+          title: const Text(
+            'Create Campaign',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          iconTheme: const IconThemeData(color: Colors.white),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
           ),
         ),
-        body: TabBarView(
-          children: [
-            _buildPendingTab(),
-            _buildOngoingTab(),
-            _buildCompletedTab(),
-          ],
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.grey.shade50,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Colors.deepPurple, Colors.purple.shade300],
+            ),
+          ),
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => _showSearchCollaborationsDialog(context),
-          label: const Text('New Collaboration'),
-          icon: const Icon(Icons.add),
+        title: const Text(
+          'Create Campaign',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        bottomNavigationBar: const BottomNavBar(),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline),
+            onPressed: () {
+              // Show help dialog
+            },
+          ),
+        ],
       ),
-    );
-  }
-
-  Widget _buildPendingTab() {
-    final String userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (userId.isEmpty) {
-      return const Center(child: Text('You must be logged in to view collaborations'));
-    }
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('collaborations')
-          .where('status', whereIn: ['pending', 'counter']) // Include counter offers
-          .where('recipientId', isEqualTo: userId)
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
-      builder: (context, incomingSnapshot) {
-        if (incomingSnapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('collaborations')
-              .where('status', whereIn: ['pending', 'counter']) // Include counter offers
-              .where('senderId', isEqualTo: userId)
-              .orderBy('createdAt', descending: true)
-              .snapshots(),
-          builder: (context, outgoingSnapshot) {
-            if (outgoingSnapshot.connectionState == ConnectionState.waiting && 
-                incomingSnapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            
-            if (incomingSnapshot.hasError) {
-              print("Incoming error: ${incomingSnapshot.error}");
-              return Center(child: Text('Error: ${incomingSnapshot.error}'));
-            }
-            
-            if (outgoingSnapshot.hasError) {
-              print("Outgoing error: ${outgoingSnapshot.error}");
-              return Center(child: Text('Error: ${outgoingSnapshot.error}'));
-            }
-            
-            final incomingDocs = incomingSnapshot.data?.docs ?? [];
-            final outgoingDocs = outgoingSnapshot.data?.docs ?? [];
-            
-            // Combine both lists
-            final List<QueryDocumentSnapshot> allCollaborations = [
-              ...incomingDocs,
-              ...outgoingDocs,
-            ];
-            
-            // Sort combined list by createdAt
-            allCollaborations.sort((a, b) {
-              final aData = a.data() as Map<String, dynamic>;
-              final bData = b.data() as Map<String, dynamic>;
-              final aTime = (aData['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-              final bTime = (bData['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-              return bTime.compareTo(aTime); // Descending order
-            });
-            
-            if (allCollaborations.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.hourglass_empty, size: 60, color: Colors.grey),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'No pending collaborations',
-                      style: TextStyle(fontSize: 18, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: () => _showSearchCollaborationsDialog(context),
-                      child: const Text('Find Collaborations'),
-                    ),
-                  ],
-                ),
-              );
-            }
-            
-            return ListView.builder(
-              itemCount: allCollaborations.length,
-              itemBuilder: (context, index) {
-                final collab = allCollaborations[index].data() as Map<String, dynamic>;
-                final bool isIncoming = collab['recipientId'] == userId;
-                final bool isCounterOffer = collab['status'] == 'counter';
-                
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              isIncoming ? 'From ${collab['senderUsername']}' : 'To ${collab['recipientUsername']}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                            Chip(
-                              label: Text(
-                                isCounterOffer 
-                                    ? 'Counter Offer' 
-                                    : (isIncoming ? 'Incoming' : 'Outgoing'),
-                                style: TextStyle(
-                                  color: isCounterOffer 
-                                      ? Colors.blue.shade700 
-                                      : (isIncoming ? Colors.white : Colors.black),
-                                ),
-                              ),
-                              backgroundColor: isCounterOffer 
-                                  ? Colors.blue.shade100
-                                  : (isIncoming ? Colors.green : Colors.amber),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text('Budget: \$${collab['budget']}'),
-                        Text(
-                          'Description: ${collab['description']}',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        
-                        // Show who made the counter offer
-                        if (isCounterOffer && collab.containsKey('counterOfferedBy')) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            collab['counterOfferedBy'] == userId 
-                                ? 'You sent a counter offer' 
-                                : 'Counter offer received',
-                            style: TextStyle(
-                              fontStyle: FontStyle.italic,
-                              color: Colors.blue.shade700,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                        
-                        // Show action buttons for incoming proposals or counter offers
-                        if ((isIncoming && !isCounterOffer) || 
-                            (isCounterOffer && collab['counterOfferedBy'] != userId)) ...[
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              OutlinedButton(
-                                onPressed: () => _respondToProposal(
-                                  collaborationId: allCollaborations[index].id,
-                                  accept: false,
-                                ),
-                                child: const Text('Decline'),
-                              ),
-                              const SizedBox(width: 8),
-                              OutlinedButton(
-                                onPressed: () => _showCounterProposalDialog(
-                                  context,
-                                  allCollaborations[index].id,
-                                  collab,
-                                ),
-                                child: const Text('Counter'),
-                              ),
-                              const SizedBox(width: 8),
-                              ElevatedButton(
-                                onPressed: () => _respondToProposal(
-                                  collaborationId: allCollaborations[index].id,
-                                  accept: true,
-                                ),
-                                child: const Text('Accept'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
+      body: _isLoading
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Colors.deepPurple),
                   ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildOngoingTab() {
-    final String userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (userId.isEmpty) {
-      return const Center(child: Text('You must be logged in to view collaborations'));
-    }
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('collaborations')
-          .where('status', whereIn: ['escrow_pending', 'in_progress', 'pending_completion'])
-          .where('recipientId', isEqualTo: userId)
-          .orderBy('updatedAt', descending: true)
-          .snapshots(),
-      builder: (context, incomingSnapshot) {
-        if (incomingSnapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('collaborations')
-              .where('status', whereIn: ['escrow_pending', 'in_progress', 'pending_completion'])
-              .where('senderId', isEqualTo: userId)
-              .orderBy('updatedAt', descending: true)
-              .snapshots(),
-          builder: (context, outgoingSnapshot) {
-            if (outgoingSnapshot.connectionState == ConnectionState.waiting && 
-                incomingSnapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            
-            if (incomingSnapshot.hasError || outgoingSnapshot.hasError) {
-              return Center(child: Text('Error: ${incomingSnapshot.error ?? outgoingSnapshot.error}'));
-            }
-            
-            final incomingDocs = incomingSnapshot.data?.docs ?? [];
-            final outgoingDocs = outgoingSnapshot.data?.docs ?? [];
-            
-            // Combine both lists
-            final List<QueryDocumentSnapshot> allCollaborations = [
-              ...incomingDocs,
-              ...outgoingDocs,
-            ];
-            
-            if (allCollaborations.isEmpty) {
-              return Center(
+                  const SizedBox(height: 16),
+                  Text(
+                    'Loading campaign data...',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            )
+          : FadeTransition(
+              opacity: _fadeAnimation,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.work_outline, size: 60, color: Colors.grey),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'No active collaborations',
-                      style: TextStyle(fontSize: 18, color: Colors.grey),
-                    ),
-                  ],
-                ),
-              );
-            }
-            
-            return ListView.builder(
-              itemCount: allCollaborations.length,
-              itemBuilder: (context, index) {
-                final collab = allCollaborations[index].data() as Map<String, dynamic>;
-                final String partnerName = collab['recipientId'] == userId ? 
-                    collab['senderUsername'] : collab['recipientUsername'];
-                
-                // Get the current status
-                final String status = collab['status'] as String;
-                
-                // Define flags for the different statuses
-                final bool isEscrowPending = status == 'escrow_pending';
-                final bool isInProgress = status == 'in_progress';
-                final bool isPendingCompletion = status == 'pending_completion';
-                
-                // Check if the current user is the organization who needs to pay
-                final bool isOrganization = _accountType.toLowerCase() == 'organization';
-                final bool isInfluencer = _accountType.toLowerCase() == 'influencer';
-                
-                // Determine if organization needs to pay
-                final bool organizationNeedsToPayEscrow = isEscrowPending && isOrganization;
-                
-                // Check if user is organization and this is a completion request from influencer
-                final bool isCompletionRequestToOrganization = isPendingCompletion && 
-                                                           isOrganization; 
-                                                           //&& collab['recipientId'] == userId;
-                
-                // Text and chip styling based on status
-                String statusText = '';
-                Color chipBackgroundColor;
-                Color chipTextColor;
-                Widget? chipIcon;
-                
-                // Set status text and chip styling
-                if (isEscrowPending) {
-                  statusText = 'Escrow Payment Pending';
-                  chipBackgroundColor = Colors.orange.shade100;
-                  chipTextColor = Colors.orange.shade900;
-                  chipIcon = const Icon(Icons.payment, size: 16);
-                } else if (isInProgress) {
-                  statusText = 'In Progress';
-                  chipBackgroundColor = Colors.green.shade100;
-                  chipTextColor = Colors.green.shade900;
-                  chipIcon = const Icon(Icons.work, size: 16);
-                } else if (isPendingCompletion) {
-                  statusText = 'Pending Completion';
-                  chipBackgroundColor = Colors.amber.shade100;
-                  chipTextColor = Colors.amber.shade900;
-                  chipIcon = const Icon(Icons.check_circle_outline, size: 16);
-                } else {
-                  statusText = 'Unknown Status';
-                  chipBackgroundColor = Colors.grey.shade200;
-                  chipTextColor = Colors.grey.shade800;
-                  chipIcon = null;
-                }
-                
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    // Basic Information Card
+                    _buildGradientCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Text(
-                                'Collaborating with $partnerName',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
+                            _buildSectionHeader(
+                                'Campaign Details', Icons.campaign),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _titleController,
+                              decoration: InputDecoration(
+                                labelText: 'Campaign Title',
+                                hintText: 'Enter campaign title',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: Colors.deepPurple,
+                                    width: 2,
+                                  ),
+                                ),
+                                prefixIcon: const Icon(Icons.title),
                               ),
                             ),
-                            Chip(
-                              label: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (chipIcon != null) ...[
-                                    chipIcon,
-                                    const SizedBox(width: 4),
-                                  ],
-                                  Text(statusText),
-                                ],
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _descriptionController,
+                              decoration: InputDecoration(
+                                labelText: 'Campaign Description',
+                                hintText: 'Describe your campaign',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: Colors.deepPurple,
+                                    width: 2,
+                                  ),
+                                ),
+                                prefixIcon: const Icon(Icons.description),
                               ),
-                              backgroundColor: chipBackgroundColor,
-                              labelStyle: TextStyle(color: chipTextColor),
+                              maxLines: 3,
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Text('Budget: \$${collab['budget']}'),
-                        Text('Description: ${collab['description']}'),
-                        
-                        // Show status-specific messages
-                        if (isEscrowPending) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            isOrganization 
-                                ? 'Please make the escrow payment to proceed with the collaboration.' 
-                                : 'Waiting for the organization to make the escrow payment.',
-                            style: const TextStyle(
-                              fontStyle: FontStyle.italic,
-                              color: Colors.blue,
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Date Selection Card
+                    _buildGradientCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionHeader(
+                                'Campaign Duration', Icons.date_range),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () => _selectDate(context, true),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: _startDate != null
+                                              ? Colors.deepPurple
+                                              : Colors.grey.shade300,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                        color: _startDate != null
+                                            ? Colors.deepPurple
+                                                .withOpacity(0.05)
+                                            : Colors.grey.shade50,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                Icons.calendar_today,
+                                                size: 16,
+                                                color: _startDate != null
+                                                    ? Colors.deepPurple
+                                                    : Colors.grey,
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                'Start Date',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600],
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            _startDate != null
+                                                ? '${_startDate!.day}/${_startDate!.month}/${_startDate!.year}'
+                                                : 'Select start date',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w600,
+                                              color: _startDate != null
+                                                  ? Colors.black87
+                                                  : Colors.grey[500],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () => _selectDate(context, false),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: _endDate != null
+                                              ? Colors.deepPurple
+                                              : Colors.grey.shade300,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                        color: _endDate != null
+                                            ? Colors.deepPurple
+                                                .withOpacity(0.05)
+                                            : Colors.grey.shade50,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                Icons.calendar_today,
+                                                size: 16,
+                                                color: _endDate != null
+                                                    ? Colors.deepPurple
+                                                    : Colors.grey,
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                'End Date',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600],
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            _endDate != null
+                                                ? '${_endDate!.day}/${_endDate!.month}/${_endDate!.year}'
+                                                : 'Select end date',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w600,
+                                              color: _endDate != null
+                                                  ? Colors.black87
+                                                  : Colors.grey[500],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ] else if (isInProgress) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            isInfluencer 
-                                ? 'Escrow payment received. You can proceed with your work.' 
-                                : 'Escrow payment sent. Waiting for the influencer to complete their work.',
-                            style: const TextStyle(
-                              fontStyle: FontStyle.italic,
-                              color: Colors.blue,
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Payment Type Card
+                    _buildGradientCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionHeader('Payment Type', Icons.payment),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color:
+                                            _paymentType == PaymentType.escrow
+                                                ? Colors.deepPurple
+                                                : Colors.grey.shade300,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: _paymentType == PaymentType.escrow
+                                          ? Colors.deepPurple.withOpacity(0.05)
+                                          : Colors.transparent,
+                                    ),
+                                    child: RadioListTile<PaymentType>(
+                                      title: const Text(
+                                        'Escrow',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                      subtitle: const Text(
+                                        'Secure payment held until completion',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      value: PaymentType.escrow,
+                                      groupValue: _paymentType,
+                                      activeColor: Colors.deepPurple,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _paymentType = value!;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ] else if (isPendingCompletion) ...[
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Influencer has marked this collaboration as completed.',
-                            style: TextStyle(
-                              fontStyle: FontStyle.italic,
-                              color: Colors.blue,
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color:
+                                            _paymentType == PaymentType.upfront
+                                                ? Colors.deepPurple
+                                                : Colors.grey.shade300,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: _paymentType == PaymentType.upfront
+                                          ? Colors.deepPurple.withOpacity(0.05)
+                                          : Colors.transparent,
+                                    ),
+                                    child: RadioListTile<PaymentType>(
+                                      title: const Text(
+                                        'Upfront',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                      subtitle: const Text(
+                                        'Immediate payment',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      value: PaymentType.upfront,
+                                      groupValue: _paymentType,
+                                      activeColor: Colors.deepPurple,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _paymentType = value!;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Product Selection
+                    _buildProductSelector(),
+
+                    const SizedBox(height: 16),
+
+                    // Influencer Selection
+                    _buildInfluencerSelector(),
+
+                    const SizedBox(height: 24),
+
+                    // Save Button
+                    Container(
+                      width: double.infinity,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.deepPurple, Colors.purple.shade300],
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.deepPurple.withOpacity(0.3),
+                            spreadRadius: 1,
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
                           ),
                         ],
-                        
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            OutlinedButton(
-                              onPressed: () {
-                                // Show details or chat about the collaboration
-                              },
-                              child: const Text('Details'),
-                            ),
-                            const SizedBox(width: 8),
-                            
-                            // For organization that needs to pay escrow
-                            if (organizationNeedsToPayEscrow) ...[
-                              ElevatedButton(
-                                onPressed: () => _showEscrowPaymentDialog(allCollaborations[index].id),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue,
-                                ),
-                                child: const Text('Make Payment'),
-                              ),
-                            ] 
-                            // For organization dealing with completion requests
-                            else if (isCompletionRequestToOrganization) ...[
-                              OutlinedButton(
-                                onPressed: () => _declineCompletionRequest(allCollaborations[index].id),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.red,
-                                ),
-                                child: const Text('Still in Progress'),
-                              ),
-                              const SizedBox(width: 8),
-                              ElevatedButton(
-                                onPressed: () => _confirmCompletionRequest(allCollaborations[index].id),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                ),
-                                child: const Text('Confirm Completion'),
-                              ),
-                            ] 
-                            // For regular in-progress collaborations
-                            else if (isInProgress && !isPendingCompletion) ...[
-                              ElevatedButton(
-                                onPressed: () {
-                                  _markCollaborationAsCompleted(allCollaborations[index].id);
-                                },
-                                child: const Text('Mark as Completed'),
-                              ),
-                            ]
-                            // For influencers who have already sent completion requests
-                            else if (isPendingCompletion) ...[
-                              ElevatedButton(
-                                onPressed: null, // Disabled button
-                                style: ElevatedButton.styleFrom(
-                                  disabledBackgroundColor: Colors.grey.shade300,
-                                ),
-                                child: const Text('Awaiting Confirmation'),
-                              ),
-                            ]
-                            // For influencers waiting for escrow payment
-                            else if (isEscrowPending && !isOrganization) ...[
-                              ElevatedButton(
-                                onPressed: null, // Disabled button
-                                style: ElevatedButton.styleFrom(
-                                  disabledBackgroundColor: Colors.grey.shade300,
-                                ),
-                                child: const Text('Awaiting Payment'),
-                              ),
-                            ],
-                          ],
+                      ),
+                      child: ElevatedButton(
+                        onPressed: _saveCampaign,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildCompletedTab() {
-    final String userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (userId.isEmpty) {
-      return const Center(child: Text('You must be logged in to view collaborations'));
-    }
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('collaborations')
-          .where('status', isEqualTo: 'completed') // Make sure this is explicit
-          .where('recipientId', isEqualTo: userId)
-          .orderBy('updatedAt', descending: true)
-          .snapshots(),
-      builder: (context, incomingSnapshot) {
-        if (incomingSnapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('collaborations')
-              .where('status', isEqualTo: 'completed')
-              .where('senderId', isEqualTo: userId)
-              .orderBy('updatedAt', descending: true)
-              .snapshots(),
-          builder: (context, outgoingSnapshot) {
-            if (outgoingSnapshot.connectionState == ConnectionState.waiting && 
-                incomingSnapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            
-            if (incomingSnapshot.hasError || outgoingSnapshot.hasError) {
-              return Center(child: Text('Error: ${incomingSnapshot.error ?? outgoingSnapshot.error}'));
-            }
-            
-            final incomingDocs = incomingSnapshot.data?.docs ?? [];
-            final outgoingDocs = outgoingSnapshot.data?.docs ?? [];
-            
-            // Combine both lists
-            final List<QueryDocumentSnapshot> allCollaborations = [
-              ...incomingDocs,
-              ...outgoingDocs,
-            ];
-            
-            if (allCollaborations.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.check_circle_outline, size: 60, color: Colors.grey),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'No completed collaborations',
-                      style: TextStyle(fontSize: 18, color: Colors.grey),
-                    ),
-                  ],
-                ),
-              );
-            }
-            
-            return ListView.builder(
-              itemCount: allCollaborations.length,
-              itemBuilder: (context, index) {
-                final collab = allCollaborations[index].data() as Map<String, dynamic>;
-                final String partnerName = collab['recipientId'] == userId ? 
-                    collab['senderUsername'] : collab['recipientUsername'];
-                
-                // Format the completion date
-                final completedAt = collab['completedAt'] as Timestamp?;
-                final completionDate = completedAt != null 
-                    ? _formatTimestamp(completedAt)
-                    : 'Unknown date';
-                    
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Collaboration with $partnerName',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                            Chip(
-                              label: const Text('Completed'),
-                              backgroundColor: Colors.green.shade100,
-                              labelStyle: TextStyle(color: Colors.green.shade800),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text('Budget: \$${collab['budget']}'),
-                        Text(
-                          'Description: ${collab['description']}',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Completed on: $completionDate',
+                        child: const Text(
+                          'Create Campaign',
                           style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            OutlinedButton(
-                              onPressed: () {
-                                // Show collaboration details or history
-                              },
-                              child: const Text('View Details'),
-                            ),
-                          ],
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
 
-  String _formatTimestamp(Timestamp timestamp) {
-    final dateTime = timestamp.toDate();
-    final now = DateTime.now();
-    
-    if (now.difference(dateTime).inDays == 0) {
-      // Today, show time
-      return 'Today at ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
-    } else if (now.difference(dateTime).inDays == 1) {
-      // Yesterday
-      return 'Yesterday';
-    } else if (now.difference(dateTime).inDays < 7) {
-      // Within a week
-      final weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-      return weekdays[dateTime.weekday - 1];
-    } else {
-      // Earlier
-      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return '${dateTime.day} ${months[dateTime.month - 1]} ${dateTime.year}';
-    }
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+            ),
+    );
   }
 }

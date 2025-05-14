@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:trendharbor_v2/screens/campaign_screen.dart';
 import 'screens/create_post_screen.dart';
 import 'screens/forget_password_screen.dart';
 import 'screens/login_screen.dart';
@@ -25,13 +26,12 @@ import 'screens/add_product_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  
+
   runApp(
     MultiProvider(
       providers: [
@@ -46,11 +46,12 @@ void main() async {
 
 class MyApp extends StatelessWidget {
   MyApp({super.key});
-    
+
   final GoRouter router = GoRouter(
     routes: [
       GoRoute(path: '/', builder: (context, state) => const LoginScreen()),
-      GoRoute(path: '/signup', builder: (context, state) => const RegisterScreen()),
+      GoRoute(
+          path: '/signup', builder: (context, state) => const RegisterScreen()),
       GoRoute(
           path: '/forget-password',
           builder: (context, state) => const ForgetPasswordScreen()),
@@ -73,55 +74,55 @@ class MyApp extends StatelessWidget {
       GoRoute(
           path: '/change-password',
           builder: (context, state) => const ChangePasswordScreen()),
-      GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
+      GoRoute(
+          path: '/search', builder: (context, state) => const SearchScreen()),
       GoRoute(path: '/shop', builder: (context, state) => const ShopScreen()),
       GoRoute(
           path: '/direct-messages',
           builder: (context, state) => const DirectMessagesScreen()),
       GoRoute(
-      path: '/chat/:chatId',
-      builder: (context, state) {
-        final chatId = state.pathParameters['chatId']!;
-        return ChatScreen(chatId: chatId);
-      },),
+        path: '/chat/:chatId',
+        builder: (context, state) {
+          final chatId = state.pathParameters['chatId']!;
+          return ChatScreen(chatId: chatId);
+        },
+      ),
 
       GoRoute(
         path: '/collaborations',
-        builder: (context, state) => const CollaborationsScreen(),
+        builder: (context, state) => const CampaignsScreen(),
       ),
-      
-    GoRoute(
-      path: '/create-post',
-      builder: (context, state) => const CreatePostScreen(),
-    ),
 
-    GoRoute(
-      path: '/post/:postId',
-      builder: (context, state) => PostDetailScreen(
-        postId: state.pathParameters['postId']!,
+      GoRoute(
+        path: '/create-post',
+        builder: (context, state) => const CreatePostScreen(),
       ),
-    ),
 
-    GoRoute(
-      path: '/product/:productId',
-      builder: (context, state) {
-        final productId = state.pathParameters['productId']!;
-        return ProductDetailScreen(productId: productId);
-      },
-    ),
-    GoRoute(
-      path: '/cart',
-      builder: (context, state) => const CartScreen(),
-    ),
+      GoRoute(
+        path: '/post/:postId',
+        builder: (context, state) => PostDetailScreen(
+          postId: state.pathParameters['postId']!,
+        ),
+      ),
 
-    GoRoute(
-      path: '/add-product',
-      builder: (context, state) => const AddProductScreen(),
-    ),  
+      GoRoute(
+        path: '/product/:productId',
+        builder: (context, state) {
+          final productId = state.pathParameters['productId']!;
+          return ProductDetailScreen(productId: productId);
+        },
+      ),
+      GoRoute(
+        path: '/cart',
+        builder: (context, state) => const CartScreen(),
+      ),
 
+      GoRoute(
+        path: '/add-product',
+        builder: (context, state) => const AddProductScreen(),
+      ),
     ],
   );
-
 
   @override
   Widget build(BuildContext context) {

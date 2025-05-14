@@ -1,9 +1,10 @@
+// lib/services/firebase_service.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
-// Custom user model that combines Auth and Firestore data
+// Updated user model that includes paidProducts list
 class AppUser {
   final String uid;
   final String email;
@@ -12,6 +13,7 @@ class AppUser {
   final bool emailVerified;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final List<String> paidProducts; // New field to track paid product IDs
 
   AppUser({
     required this.uid,
@@ -21,20 +23,39 @@ class AppUser {
     required this.emailVerified,
     this.createdAt,
     this.updatedAt,
+    this.paidProducts = const [],
   });
 
   // Convert Firestore document to AppUser
   factory AppUser.fromFirestore(DocumentSnapshot doc, User authUser) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc.data() as Map<String, dynamic>?;
     return AppUser(
       uid: authUser.uid,
-      email: authUser.email ?? data['email'] ?? '',
-      accountType: data['accountType'] ?? '',
-      profileImageUrl: data['profileImageUrl'],
+      email: authUser.email ?? data?['email'] ?? '',
+      accountType: data?['accountType'] ?? '',
+      profileImageUrl: data?['profileImageUrl'],
       emailVerified: authUser.emailVerified,
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+      createdAt: (data?['createdAt'] as Timestamp?)?.toDate(),
+      updatedAt: (data?['updatedAt'] as Timestamp?)?.toDate(),
+      paidProducts: List<String>.from(data?['paidProducts'] ?? []),
     );
+  }
+
+  // Convert AppUser to Firestore document
+  Map<String, dynamic> toMap() {
+    return {
+      'email': email,
+      'accountType': accountType,
+      'profileImageUrl': profileImageUrl,
+      'emailVerified': emailVerified,
+      'createdAt': createdAt != null
+          ? Timestamp.fromDate(createdAt!)
+          : FieldValue.serverTimestamp(),
+      'updatedAt': updatedAt != null
+          ? Timestamp.fromDate(updatedAt!)
+          : FieldValue.serverTimestamp(),
+      'paidProducts': paidProducts,
+    };
   }
 }
 
@@ -93,6 +114,7 @@ class FirebaseService {
       'profileImageUrl': profileImageUrl,
       'emailVerified': false,
       'createdAt': FieldValue.serverTimestamp(),
+      'paidProducts': [], // Initialize empty paid products list
     }, SetOptions(merge: true));
   }
 
@@ -114,7 +136,7 @@ class FirebaseService {
   static Future<AppUser?> getCurrentUser() async {
     final authUser = _auth.currentUser;
     if (authUser == null) return null;
-    
+
     final doc = await _firestore.collection('users').doc(authUser.uid).get();
     return doc.exists ? AppUser.fromFirestore(doc, authUser) : null;
   }
@@ -125,5 +147,27 @@ class FirebaseService {
       'profileImageUrl': url,
       'updatedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  // Method to add a product to user's paid products list
+  static Future<void> addPaidProduct(String uid, String productId) async {
+    await _firestore.collection('users').doc(uid).update({
+      'paidProducts': FieldValue.arrayUnion([productId]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // Method to get user's paid products
+  static Future<List<String>> getUserPaidProducts(String uid) async {
+    final doc = await _firestore.collection('users').doc(uid).get();
+    final data = doc.data();
+    return List<String>.from(data?['paidProducts'] ?? []);
+  }
+
+  // Method to check if user has been paid for a specific product
+  static Future<bool> hasUserBeenPaidForProduct(
+      String uid, String productId) async {
+    final paidProducts = await getUserPaidProducts(uid);
+    return paidProducts.contains(productId);
   }
 }
