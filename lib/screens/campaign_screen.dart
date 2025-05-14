@@ -3258,12 +3258,12 @@ class _CampaignsScreenState extends State<CampaignsScreen>
               child: FloatingActionButton.extended(
                 onPressed: () {
                   // Uncomment the next lines when you have CreateCampaignScreen
-                  // Navigator.push(
-                  //   context,
-                  //   MaterialPageRoute(
-                  //     builder: (context) => const CreateCampaignScreen(),
-                  //   ),
-                  // );
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const CreateCampaignScreen(),
+                    ),
+                  );
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Create Campaign feature coming soon!'),
