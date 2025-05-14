@@ -24,6 +24,26 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     // Check if user is already logged in
     _checkCurrentUser();
+    
+    // Add listener to convert username/email to lowercase
+    _emailController.addListener(() {
+      final text = _emailController.text;
+      final lowercaseText = text.toLowerCase();
+      
+      // Only update if there's a difference to avoid infinite loop
+      if (text != lowercaseText) {
+        // Remember cursor position
+        final cursorPos = _emailController.selection.baseOffset;
+        
+        // Replace the text with lowercase version
+        _emailController.value = TextEditingValue(
+          text: lowercaseText,
+          selection: TextSelection.collapsed(
+            offset: cursorPos > 0 ? cursorPos : 0,
+          ),
+        );
+      }
+    });
   }
 
   @override
@@ -85,7 +105,9 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      String input = _emailController.text.trim();
+      // Make sure input is lowercase before proceeding
+      String input = _emailController.text.trim().toLowerCase();
+      _emailController.text = input;  // Update controller with lowercase value
       String email;
       String? uid;
 
@@ -257,6 +279,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       style: const TextStyle(color: Colors.white),
                       keyboardType: TextInputType.emailAddress,
+                      // Force lowercase input
+                      textCapitalization: TextCapitalization.none,
                     ),
                     const SizedBox(height: 16),
                     // Password Input

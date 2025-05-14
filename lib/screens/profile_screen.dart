@@ -35,18 +35,27 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   String _currentUserId = '';
   bool _isCurrentUser = true;
   List<Map<String, dynamic>> _userPosts = [];
+  List<Map<String, dynamic>> _likedPosts = [];
   bool _isFollowing = false;
   int _followersCount = 0;
   int _followingCount = 0;
   int _postsCount = 0;
   String _accountType = 'Personal'; // Default account type
+  bool _isLoadingLiked = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadProfileData();
+    _loadProfileData().then((_) => _loadLikedPosts());
     
+    // Listen for tab changes to load data only when needed
+    _tabController.addListener(() {
+      if (_tabController.index == 1 && _likedPosts.isEmpty && !_isLoadingLiked) {
+        _loadLikedPosts();
+      }
+    });
+
     // Set up a timer to refresh user data periodically
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted && _isCurrentUser) {
@@ -167,6 +176,85 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading profile: $e'))
         );
+      }
+    }
+  }
+
+  Future<void> _loadLikedPosts() async {
+    if (!_isCurrentUser && _userData == null) return;
+    
+    final String userId = _isCurrentUser ? _currentUserId : _userData!['id'];
+    
+    setState(() {
+      _isLoadingLiked = true;
+    });
+    
+    try {
+      // Modified query to include timestamp field along with userId
+      final likesQuery = await FirebaseFirestore.instance
+        .collectionGroup('likes')
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true) // Adding timestamp as a second field
+        .get();
+        
+      if (likesQuery.docs.isEmpty) {
+        setState(() {
+          _likedPosts = [];
+          _isLoadingLiked = false;
+        });
+        return;
+      }
+      
+      // Extract post IDs from likes
+      final postIds = likesQuery.docs.map((doc) {
+        // The parent of a like document is the 'likes' collection, and its parent is the post document
+        return doc.reference.parent.parent!.id;
+      }).toList();
+      
+      // Fetch the actual posts
+      final List<Map<String, dynamic>> posts = [];
+      
+      // Process posts in batches to avoid excessive reads
+      const batchSize = 10;
+      for (var i = 0; i < postIds.length; i += batchSize) {
+        final end = (i + batchSize < postIds.length) ? i + batchSize : postIds.length;
+        final batch = postIds.sublist(i, end);
+        
+        // Get the posts for this batch
+        final postsSnapshot = await FirebaseFirestore.instance
+          .collection('posts')
+          .where(FieldPath.documentId, whereIn: batch)
+          .get();
+          
+        // Add to our posts list
+        posts.addAll(postsSnapshot.docs.map((doc) => {
+          'id': doc.id,
+          ...doc.data(),
+        }).toList());
+      }
+      
+      // Sort by most recently liked
+      posts.sort((a, b) {
+        final aTimestamp = a['timestamp'] as Timestamp?;
+        final bTimestamp = b['timestamp'] as Timestamp?;
+        if (aTimestamp == null || bTimestamp == null) return 0;
+        return bTimestamp.compareTo(aTimestamp); // Newest first
+      });
+      
+      if (mounted) {
+        setState(() {
+          _likedPosts = posts;
+          _isLoadingLiked = false;
+        });
+        print("Loaded ${_likedPosts.length} liked posts");
+      }
+    } catch (e) {
+      print('Error loading liked posts: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingLiked = false;
+          _likedPosts = [];
+        });
       }
     }
   }
@@ -543,6 +631,19 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     }
   }
 
+  double _calculateTabContentHeight() {
+    if (_tabController.index == 0) {
+      // Posts tab
+      return _userPosts.isEmpty ? 300 : (_userPosts.length / 3).ceil() * 160;
+    } else if (_tabController.index == 1) {
+      // Liked posts tab
+      return _likedPosts.isEmpty ? 300 : (_likedPosts.length / 3).ceil() * 160;
+    } else {
+      // Saved posts tab (no real content yet)
+      return 300;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -561,7 +662,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     return Scaffold(
       appBar: AppBar(
         title: Text(username),
-        automaticallyImplyLeading: !_isCurrentUser, // Back button for other profiles
+        automaticallyImplyLeading: !_isCurrentUser,
         actions: [
           if (_isCurrentUser)
             IconButton(
@@ -570,207 +671,327 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             ),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Profile Header
-            Padding(
-              padding: const EdgeInsets.all(16.0),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(
+              scrollbars: false, // This disables the scrollbar
+            ),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      // Profile Image
-                      GestureDetector(
-                        onTap: _isCurrentUser ? _pickAndUploadImage : null,
-                        child: Stack(
-                          alignment: Alignment.bottomRight,
-                          children: [
-                            Container(
-                              width: 100,
-                              height: 100,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.blue.shade700,
-                                  width: 3,
-                                ),
-                              ),
-                              child: ClipOval(
-                                child: (profileImageUrl != null && profileImageUrl.isNotEmpty)
-                                  ? FutureBuilder<bool>(
-                                      future: _checkImageExists(profileImageUrl),
-                                      builder: (context, snapshot) {
-                                        if (snapshot.connectionState == ConnectionState.waiting) {
-                                          return const Center(child: CircularProgressIndicator());
-                                        }
-                                        
-                                        final imageExists = snapshot.data ?? false;
-                                        
-                                        if (imageExists) {
-                                          final randomParam = Random().nextInt(1000000);
-                                          
-                                          return Image(
-                                            image: NetworkImage('$profileImageUrl&cache=$randomParam'),
-                                            fit: BoxFit.cover,
-                                            width: 100,
-                                            height: 100,
-                                            loadingBuilder: (context, child, loadingProgress) {
-                                              if (loadingProgress == null) return child;
-                                              return Center(
-                                                child: CircularProgressIndicator(
-                                                  value: loadingProgress.expectedTotalBytes != null
-                                                      ? loadingProgress.cumulativeBytesLoaded / 
-                                                        loadingProgress.expectedTotalBytes!
-                                                      : null,
-                                                ),
-                                              );
-                                            },
-                                            errorBuilder: (context, error, stackTrace) {
-                                              print("Error loading profile image with Image widget: $error");
-                                              return _buildUserAvatar(username);
-                                            },
-                                          );
-                                        } else {
-                                          print("Image URL exists but cannot be loaded: $profileImageUrl");
-                                          return _buildUserAvatar(username);
-                                        }
-                                      })
-                                  : _buildUserAvatar(username),
-                              ),
-                            ),
-                            if (_isCurrentUser)
-                              Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.shade700,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.camera_alt,
-                                  color: Colors.white,
-                                  size: 18,
-                                ),
-                              ),
-                          ],
+                  // Profile Header - Responsive layout
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.1),
+                          blurRadius: 10,
+                          spreadRadius: 0,
                         ),
-                      ),
-                      const SizedBox(width: 24),
-                      
-                      // Stats
-                      Expanded(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _buildStatColumn(_postsCount, 'Posts'),
-                            _buildStatColumn(_followersCount, 'Followers'),
-                            _buildStatColumn(_followingCount, 'Following'),
-                          ],
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(24),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        // Use row layout on large screens, column on small
+                        final isLargeScreen = constraints.maxWidth > 600;
+                        
+                        if (isLargeScreen) {
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Left column with profile image
+                              Column(
+                                children: [
+                                  _buildProfileImage(username, profileImageUrl),
+                                  const SizedBox(height: 16),
+                                  // Username and badge for large screens
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        username,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 20,
+                                        ),
+                                      ),
+                                      if (isVerified)
+                                        Padding(
+                                          padding: const EdgeInsets.only(left: 4.0),
+                                          child: Icon(
+                                            Icons.verified,
+                                            color: Colors.blue,
+                                            size: 18,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  // Account type badge
+                                  Container(
+                                    margin: const EdgeInsets.only(top: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade100,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Text(
+                                      accountType,
+                                      style: TextStyle(
+                                        color: Colors.blue.shade800,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(width: 32),
+                              
+                              // Right column with stats and bio
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Stats in horizontal row
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade50,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                        children: [
+                                          _buildStatColumn(_postsCount, 'Posts'),
+                                          _buildStatsVerticalDivider(),
+                                          _buildStatColumn(_followersCount, 'Followers'),
+                                          _buildStatsVerticalDivider(),
+                                          _buildStatColumn(_followingCount, 'Following'),
+                                        ],
+                                      ),
+                                    ),
+                                    
+                                    const SizedBox(height: 20),
+                                    
+                                    // Bio with header
+                                    if (bio.isNotEmpty) ...[
+                                      Text(
+                                        'Bio',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.grey.shade700,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade50,
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          bio,
+                                          style: TextStyle(
+                                            height: 1.4,
+                                            color: Colors.grey.shade800,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 20),
+                                    ],
+                                    
+                                    // Action buttons
+                                    _isCurrentUser
+                                        ? _buildCurrentUserButtons()
+                                        : _buildOtherUserButtons(),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        } else {
+                          // Mobile layout (original layout with some improvements)
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  // Profile Image
+                                  _buildProfileImage(username, profileImageUrl),
+                                  const SizedBox(width: 24),
+                                  
+                                  // Stats
+                                  Expanded(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                        children: [
+                                          _buildStatColumn(_postsCount, 'Posts'),
+                                          _buildStatColumn(_followersCount, 'Followers'),
+                                          _buildStatColumn(_followingCount, 'Following'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              
+                              const SizedBox(height: 16),
+                              
+                              // Username and verified badge
+                              Row(
+                                children: [
+                                  Text(
+                                    username,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                  if (isVerified)
+                                    const Padding(
+                                      padding: EdgeInsets.only(left: 4.0),
+                                      child: Icon(
+                                        Icons.verified,
+                                        color: Colors.blue,
+                                        size: 16,
+                                      ),
+                                    ),
+                                  const Spacer(),
+                                  // Account type badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade100,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      accountType,
+                                      style: TextStyle(
+                                        color: Colors.blue.shade700,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              
+                              // Bio
+                              if (bio.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12.0, bottom: 4.0),
+                                  child: Text(bio),
+                                ),
+                              
+                              const SizedBox(height: 16),
+                              
+                              // Action buttons
+                              _isCurrentUser
+                                  ? _buildCurrentUserButtons()
+                                  : _buildOtherUserButtons(),
+                            ],
+                          );
+                        }
+                      },
+                    ),
                   ),
                   
-                  const SizedBox(height: 16),
-                  
-                  // Username and verified badge
-                  Row(
-                    children: [
-                      Text(
-                        username,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
+                  // Tab section
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.1),
+                          blurRadius: 10,
+                          spreadRadius: 0,
                         ),
-                      ),
-                      if (isVerified)
-                        const Padding(
-                          padding: EdgeInsets.only(left: 4.0),
-                          child: Icon(
-                            Icons.verified,
-                            color: Colors.blue,
-                            size: 16,
+                      ],
+                    ),
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Column(
+                      children: [
+                        // Tabs
+                        TabBar(
+                          controller: _tabController,
+                          indicatorColor: Colors.blue.shade700,
+                          labelColor: Colors.black,
+                          tabs: const [
+                            Tab(
+                              icon: Icon(Icons.grid_on),
+                              text: "Posts",
+                            ),
+                            Tab(
+                              icon: Icon(Icons.favorite_border),
+                              text: "Likes",
+                            ),
+                            Tab(
+                              icon: Icon(Icons.bookmark_border),
+                              text: "Saved",
+                            ),
+                          ],
+                        ),
+                        
+                        // Tab content - Dynamic height grid
+                        SizedBox(
+                          height: _calculateTabContentHeight(),
+                          child: TabBarView(
+                            controller: _tabController,
+                            children: [
+                              // Posts grid
+                              _buildPostsGrid(),
+                              
+                              // Liked posts grid
+                              _buildLikedPostsGrid(),
+                              
+                              // Saved posts grid
+                              Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.bookmark, size: 48, color: Colors.grey.shade300),
+                                    const SizedBox(height: 16),
+                                    const Text(
+                                      "Saved posts will appear here",
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                    ],
-                  ),
-                  
-                  // Account type badge
-                  Container(
-                    margin: const EdgeInsets.only(top: 4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
+                      ],
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      accountType,
-                      style: TextStyle(
-                        color: Colors.blue.shade700,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                  
-                  // Bio
-                  if (bio.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: Text(bio),
-                    ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  // Action buttons
-                  _isCurrentUser
-                      ? _buildCurrentUserButtons()
-                      : _buildOtherUserButtons(),
-                ],
-              ),
-            ),
-            
-            // Tabs and content
-            TabBar(
-              controller: _tabController,
-              indicatorColor: Colors.blue.shade700,
-              labelColor: Colors.black,
-              tabs: const [
-                Tab(icon: Icon(Icons.grid_on)),
-                Tab(icon: Icon(Icons.favorite_border)),
-                Tab(icon: Icon(Icons.bookmark_border)),
-              ],
-            ),
-            
-            // Tab content - Fixed height for tab views
-            SizedBox(
-              height: 300, // Fixed height for the grid view
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // Posts grid
-                  _buildPostsGrid(),
-                  
-                  // Liked posts grid (placeholder)
-                  const Center(
-                    child: Text("Liked posts will appear here"),
-                  ),
-                  
-                  // Saved posts grid (placeholder)
-                  const Center(
-                    child: Text("Saved posts will appear here"),
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
-      // Add bottom navigation bar
       bottomNavigationBar: const BottomNavBar(),
     );
   }
@@ -892,14 +1113,26 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('No posts yet'),
+            Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            const Text(
+              'No posts yet',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
             if (_isCurrentUser)
               Padding(
                 padding: const EdgeInsets.only(top: 16),
-                child: TextButton.icon(
+                child: ElevatedButton.icon(
                   onPressed: () => context.push('/create-post'),
                   icon: const Icon(Icons.add_photo_alternate),
                   label: const Text('Create Your First Post'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    backgroundColor: Colors.blue.shade700,
+                  ),
                 ),
               ),
           ],
@@ -908,11 +1141,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     }
 
     return GridView.builder(
-      padding: const EdgeInsets.all(2),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 2,
-        mainAxisSpacing: 2,
+      padding: const EdgeInsets.all(8),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
       ),
       itemCount: _userPosts.length,
       itemBuilder: (context, index) {
@@ -927,8 +1160,20 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
           child: Hero(
             tag: 'post-${post['id']}',
             child: Container(
-              color: Colors.grey.shade200,
-              child: imageUrl != null && imageUrl.isNotEmpty
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: imageUrl != null && imageUrl.isNotEmpty
                   ? Image.network(
                       "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
                       key: ValueKey(imageUrl),
@@ -941,18 +1186,274 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                 ? loadingProgress.cumulativeBytesLoaded / 
                                   loadingProgress.expectedTotalBytes!
                                 : null,
+                            strokeWidth: 2,
                           ),
                         );
                       },
                       errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.broken_image);
+                        return const Center(
+                          child: Icon(
+                            Icons.broken_image,
+                            size: 32,
+                            color: Colors.grey,
+                          ),
+                        );
                       },
                     )
-                  : const Center(child: Icon(Icons.image)),
+                  : const Center(
+                      child: Icon(
+                        Icons.image,
+                        size: 32,
+                        color: Colors.grey,
+                      ),
+                    ),
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildLikedPostsGrid() {
+    if (_isLoadingLiked) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+    
+    if (_likedPosts.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.favorite_border, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            const Text(
+              'No liked posts yet',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Posts you like will appear here',
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(8),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: _likedPosts.length,
+      itemBuilder: (context, index) {
+        final post = _likedPosts[index];
+        final imageUrl = post['imageUrl'];
+        
+        return GestureDetector(
+          onTap: () {
+            // Navigate to post detail view
+            context.push('/post/${post['id']}');
+          },
+          child: Hero(
+            tag: 'liked-post-${post['id']}',
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Post image
+                    imageUrl != null && imageUrl.isNotEmpty
+                      ? Image.network(
+                          "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
+                          key: ValueKey("liked-$imageUrl"),
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Center(
+                              child: CircularProgressIndicator(
+                                value: loadingProgress.expectedTotalBytes != null
+                                    ? loadingProgress.cumulativeBytesLoaded / 
+                                      loadingProgress.expectedTotalBytes!
+                                    : null,
+                                strokeWidth: 2,
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Center(
+                              child: Icon(
+                                Icons.broken_image,
+                                size: 32,
+                                color: Colors.grey,
+                              ),
+                            );
+                          },
+                        )
+                      : const Center(
+                          child: Icon(
+                            Icons.image,
+                            size: 32,
+                            color: Colors.grey,
+                          ),
+                        ),
+                    
+                    // Username overlay at bottom
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              Colors.black.withOpacity(0.7),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                        child: Text(
+                          post['username'] ?? 'Unknown',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    
+                    // Heart icon overlay in top-right
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.4),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.favorite,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStatsVerticalDivider() {
+    return Container(
+      height: 30,
+      width: 1,
+      color: Colors.grey.shade300,
+    );
+  }
+
+  Widget _buildProfileImage(String username, String? profileImageUrl) {
+    return GestureDetector(
+      onTap: _isCurrentUser ? _pickAndUploadImage : null,
+      child: Stack(
+        alignment: Alignment.bottomRight,
+        children: [
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.blue.shade700,
+                width: 3,
+              ),
+            ),
+            child: ClipOval(
+              child: (profileImageUrl != null && profileImageUrl.isNotEmpty)
+                ? FutureBuilder<bool>(
+                    future: _checkImageExists(profileImageUrl),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      
+                      final imageExists = snapshot.data ?? false;
+                      
+                      if (imageExists) {
+                        final randomParam = Random().nextInt(1000000);
+                        
+                        return Image(
+                          image: NetworkImage('$profileImageUrl&cache=$randomParam'),
+                          fit: BoxFit.cover,
+                          width: 100,
+                          height: 100,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Center(
+                              child: CircularProgressIndicator(
+                                value: loadingProgress.expectedTotalBytes != null
+                                    ? loadingProgress.cumulativeBytesLoaded / 
+                                      loadingProgress.expectedTotalBytes!
+                                    : null,
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            print("Error loading profile image with Image widget: $error");
+                            return _buildUserAvatar(username);
+                          },
+                        );
+                      } else {
+                        print("Image URL exists but cannot be loaded: $profileImageUrl");
+                        return _buildUserAvatar(username);
+                      }
+                    })
+                : _buildUserAvatar(username),
+            ),
+          ),
+          if (_isCurrentUser)
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade700,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.camera_alt,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

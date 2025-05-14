@@ -24,6 +24,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isLoading = false;
 
   @override
+  void initState() {
+    super.initState();
+    
+    // Add a listener to convert uppercase to lowercase in real-time
+    _usernameController.addListener(() {
+      final text = _usernameController.text;
+      final lowercaseText = text.toLowerCase();
+      
+      // Only update if there's a difference to avoid infinite loop
+      if (text != lowercaseText) {
+        // Remember cursor position
+        final cursorPos = _usernameController.selection.baseOffset;
+        
+        // Replace the text with lowercase version
+        _usernameController.value = TextEditingValue(
+          text: lowercaseText,
+          selection: TextSelection.collapsed(
+            offset: cursorPos > 0 ? cursorPos : 0,
+          ),
+        );
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -37,6 +62,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
+
+    // Force lowercase username one last time before submission
+    final username = _usernameController.text.trim().toLowerCase();
+    _usernameController.text = username;
 
     // Check password match
     if (_passwordController.text != _confirmPasswordController.text) {
@@ -71,7 +100,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       // Check for username duplication
       final usernameQuery = await FirebaseFirestore.instance
           .collection('users')
-          .where('username', isEqualTo: _usernameController.text.trim())
+          .where('username', isEqualTo: username)
           .get();
 
       if (usernameQuery.docs.isNotEmpty) {
@@ -93,8 +122,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       print("Creating user in Firebase Auth...");
       // Create user
-      final UserCredential userCredential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      final UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
@@ -104,22 +132,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
       // Save to Firestore immediately (don't delay this)
       try {
         print("Saving user data to Firestore...");
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userCredential.user?.uid)
-            .set({
+        await FirebaseFirestore.instance.collection('users').doc(userCredential.user?.uid).set({
           'email': _emailController.text.trim(),
-          'username': _usernameController.text.trim(),
+          'username': username, // Use the lowercase username
           'accountType': _selectedAccountType,
           'createdAt': FieldValue.serverTimestamp(),
           'profileImageUrl': '', // Add default empty profileImageUrl
-          'isVerified': false, // Add default verification status
+          'isVerified': false,  // Add default verification status
         });
         print("User data saved to Firestore successfully!");
 
         // Store user data in shared preferences
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('username', _usernameController.text.trim());
+        await prefs.setString('username', username);
         await prefs.setString('email', _emailController.text.trim());
         await prefs.setString('accountType', _selectedAccountType!);
         await prefs.setString('userId', userCredential.user?.uid ?? '');
@@ -131,6 +156,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           final userService = Provider.of<UserService>(context, listen: false);
           await userService.initUserData();
         }
+
       } catch (firestoreError) {
         print("Error saving to Firestore: $firestoreError");
         // Continue with navigation even if Firestore save fails
@@ -155,6 +181,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           context.go('/home');
         }
       }
+
     } on FirebaseAuthException catch (e) {
       // Error handling stays the same
       print('Firebase Auth Exception: ${e.code} - ${e.message}');
@@ -228,8 +255,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: ConstrainedBox(
-                constraints:
-                    const BoxConstraints(maxWidth: 400), // Limit the width
+                constraints: const BoxConstraints(maxWidth: 400), // Limit the width
                 child: Form(
                   key: _formKey,
                   child: Column(
@@ -284,7 +310,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       TextFormField(
                         controller: _usernameController,
                         decoration: InputDecoration(
-                          labelText: 'Username',
+                          labelText: 'Username (lowercase only)',
                           labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.white.withOpacity(0.2),
@@ -296,17 +322,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             vertical: 16,
                             horizontal: 16,
                           ),
+                          // Add helper text to inform users
+                          helperText: 'Lowercase letters, numbers, spaces and underscores only',
+                          helperStyle: TextStyle(color: Colors.white.withOpacity(0.8)),
                         ),
                         style: const TextStyle(color: Colors.white),
+                        // Force lowercase input
+                        textCapitalization: TextCapitalization.none,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your username';
                           }
+                          
+                          // Check for uppercase letters
+                          if (value != value.toLowerCase()) {
+                            return 'Username must be lowercase only';
+                          }
+                          
+                          // Updated regex to allow spaces
+                          if (!RegExp(r'^[a-z0-9_ ]+$').hasMatch(value)) {
+                            return 'Username can only contain lowercase letters, numbers, spaces, and underscores';
+                          }
+                          
                           return null;
                         },
                       ),
                       const SizedBox(height: 16),
-
+                      
                       // Account Type Dropdown
                       DropdownButtonFormField<String>(
                         value: _selectedAccountType,
@@ -315,24 +357,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             value: 'Personal',
                             child: Text(
                               'Personal',
-                              style: TextStyle(
-                                  color: Colors.black), // Set text color
+                              style: TextStyle(color: Colors.black), // Set text color
                             ),
                           ),
                           DropdownMenuItem(
                             value: 'Influencer',
                             child: Text(
                               'Influencer',
-                              style: TextStyle(
-                                  color: Colors.black), // Set text color
+                              style: TextStyle(color: Colors.black), // Set text color
                             ),
                           ),
                           DropdownMenuItem(
                             value: 'Organization',
                             child: Text(
                               'Organization',
-                              style: TextStyle(
-                                  color: Colors.black), // Set text color
+                              style: TextStyle(color: Colors.black), // Set text color
                             ),
                           ),
                         ],
@@ -355,10 +394,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             horizontal: 16,
                           ),
                         ),
-                        dropdownColor:
-                            Colors.white, // Set dropdown background color
-                        style: const TextStyle(
-                            color: Colors.black), // Set selected text color
+                        dropdownColor: Colors.white, // Set dropdown background color
+                        style: const TextStyle(color: Colors.black), // Set selected text color
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please select an account type';
@@ -390,8 +427,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your email';
                           }
-                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                              .hasMatch(value)) {
+                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
                             return 'Please enter a valid email';
                           }
                           return null;
@@ -460,8 +496,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       const SizedBox(height: 24),
                       // Register Button
                       ElevatedButton(
-                        onPressed:
-                            _isLoading ? null : _registerWithEmailAndPassword,
+                        onPressed: _isLoading ? null : _registerWithEmailAndPassword,
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
@@ -472,8 +507,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         child: _isLoading
                             ? const CircularProgressIndicator(
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.blue),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.blue),
                               )
                             : const Text(
                                 'Register',

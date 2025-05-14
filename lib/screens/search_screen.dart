@@ -23,6 +23,8 @@ class _SearchScreenState extends State<SearchScreen>
   bool _isLoading = false;
   bool _isLoadingSuggestions = true;
   String? _currentUserId;
+  Map<String, bool> _followingStatus = {};
+  bool _isFollowingLoading = false;
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -152,30 +154,71 @@ class _SearchScreenState extends State<SearchScreen>
     });
 
     try {
-      // Search for users where username contains the query
+      // Convert query to lowercase for case-insensitive search
+      final String lowercaseQuery = query.toLowerCase();
+
+      // Use a combination approach for case-insensitive search
+      // Step 1: Get users by lowercase username
       final usernameResults = await FirebaseFirestore.instance
           .collection('users')
-          .where('username', isGreaterThanOrEqualTo: query.toLowerCase())
-          .where('username', isLessThan: query.toLowerCase() + 'z')
+          .orderBy('username')
+          .startAt([lowercaseQuery])
+          .endAt([lowercaseQuery + '\uf8ff'])
           .limit(20)
           .get();
 
+      // Step 2: Also try to get users by display name if you store it separately
+      final displayNameResults = await FirebaseFirestore.instance
+          .collection('users')
+          .orderBy('displayName')
+          .startAt([lowercaseQuery])
+          .endAt([lowercaseQuery + '\uf8ff'])
+          .limit(20)
+          .get();
+
+      // Combine the results, removing duplicates
+      final Set<String> processedIds = {};
       final List<Map<String, dynamic>> results = [];
 
-      for (var doc in usernameResults.docs) {
-        // Skip the current user
-        if (doc.id == _currentUserId) continue;
+      // Process both result sets
+      for (final snapshot in [usernameResults, displayNameResults]) {
+        for (var doc in snapshot.docs) {
+          // Skip if already processed or is current user
+          if (processedIds.contains(doc.id) || doc.id == _currentUserId)
+            continue;
 
-        final data = doc.data();
-        results.add({
-          'id': doc.id,
-          'username': data['username'] ?? 'Unknown',
-          'profileImageUrl': data['profileImageUrl'] ?? '',
-          'accountType': data['accountType'] ?? 'Personal',
-          'isVerified': data['isVerified'] ?? false,
-          'bio': data['bio'] ?? '',
-        });
+          processedIds.add(doc.id);
+          final data = doc.data();
+          final userId = doc.id;
+          final username = data['username'] ?? 'Unknown';
+
+          // Extra check: manual case-insensitive filtering to ensure accuracy
+          if (username.toLowerCase().contains(lowercaseQuery)) {
+            bool isFollowing = await _checkIfFollowing(userId);
+            _followingStatus[userId] = isFollowing;
+
+            results.add({
+              'id': userId,
+              'username': username,
+              'profileImageUrl': data['profileImageUrl'] ?? '',
+              'accountType': data['accountType'] ?? 'Personal',
+              'isVerified': data['isVerified'] ?? false,
+              'bio': data['bio'] ?? '',
+              'isFollowing': isFollowing,
+            });
+          }
+        }
       }
+
+      // Sort with followed users at top, then alphabetically
+      results.sort((a, b) {
+        if (a['isFollowing'] && !b['isFollowing']) return -1;
+        if (!a['isFollowing'] && b['isFollowing']) return 1;
+        return a['username']
+            .toString()
+            .toLowerCase()
+            .compareTo(b['username'].toString().toLowerCase());
+      });
 
       setState(() {
         _searchResults = results;
@@ -186,6 +229,140 @@ class _SearchScreenState extends State<SearchScreen>
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<bool> _checkIfFollowing(String userId) async {
+    if (_currentUserId == null) return false;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('following')
+          .doc(_currentUserId)
+          .collection('userFollowing')
+          .doc(userId)
+          .get();
+
+      return doc.exists;
+    } catch (e) {
+      print('Error checking follow status: $e');
+      return false;
+    }
+  }
+
+  Future<void> _toggleFollow(Map<String, dynamic> user) async {
+    if (_currentUserId == null || _isFollowingLoading) return;
+
+    final userId = user['id'];
+    final isCurrentlyFollowing = _followingStatus[userId] ?? false;
+
+    setState(() {
+      _isFollowingLoading = true;
+    });
+
+    try {
+      if (isCurrentlyFollowing) {
+        await FirebaseFirestore.instance
+            .collection('following')
+            .doc(_currentUserId)
+            .collection('userFollowing')
+            .doc(userId)
+            .delete();
+
+        await FirebaseFirestore.instance
+            .collection('followers')
+            .doc(userId)
+            .collection('userFollowers')
+            .doc(_currentUserId)
+            .delete();
+
+        _followingStatus[userId] = false;
+
+        final updatedResults = _searchResults.map((result) {
+          if (result['id'] == userId) {
+            return {
+              ...result,
+              'isFollowing': false,
+            };
+          }
+          return result;
+        }).toList();
+
+        updatedResults.sort((a, b) {
+          if (a['isFollowing'] && !b['isFollowing']) return -1;
+          if (!a['isFollowing'] && b['isFollowing']) return 1;
+          return a['username'].toString().compareTo(b['username'].toString());
+        });
+
+        setState(() {
+          _searchResults = updatedResults;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Unfollowed ${user['username']}')),
+          );
+        }
+      } else {
+        await FirebaseFirestore.instance
+            .collection('following')
+            .doc(_currentUserId)
+            .collection('userFollowing')
+            .doc(userId)
+            .set({
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+
+        await FirebaseFirestore.instance
+            .collection('followers')
+            .doc(userId)
+            .collection('userFollowers')
+            .doc(_currentUserId)
+            .set({
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+
+        _followingStatus[userId] = true;
+
+        final updatedResults = _searchResults.map((result) {
+          if (result['id'] == userId) {
+            return {
+              ...result,
+              'isFollowing': true,
+            };
+          }
+          return result;
+        }).toList();
+
+        updatedResults.sort((a, b) {
+          if (a['isFollowing'] && !b['isFollowing']) return -1;
+          if (!a['isFollowing'] && b['isFollowing']) return 1;
+          return a['username'].toString().compareTo(b['username'].toString());
+        });
+
+        setState(() {
+          _searchResults = updatedResults;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Following ${user['username']}')),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error toggling follow status: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFollowingLoading = false;
+        });
+      }
     }
   }
 
@@ -294,291 +471,155 @@ class _SearchScreenState extends State<SearchScreen>
           ),
         ),
       ),
-      body: FadeTransition(
-        opacity: _fadeAnimation,
-        child: Column(
-          children: [
-            // Search results count or suggestions header
-            if (_searchQuery.isNotEmpty)
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.deepPurple.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${_searchResults.length} ${_searchResults.length == 1 ? 'result' : 'results'} for "$_searchQuery"',
-                        style: TextStyle(
-                          color: Colors.deepPurple,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
+      body: Column(
+        children: [
+          if (_searchQuery.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Text(
+                    '${_searchResults.length} ${_searchResults.length == 1 ? 'result' : 'results'} for "$_searchQuery"',
+                    style: TextStyle(
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
                     ),
-                    const Spacer(),
-                    if (_isLoading)
-                      const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.deepPurple),
-                        ),
-                      ),
-                  ],
-                ),
-              )
-            else
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(
-                  children: [
-                    Icon(Icons.people, color: Colors.deepPurple, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      'People from your campaigns',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.deepPurple,
-                      ),
+                  ),
+                  const Spacer(),
+                  if (_isLoading)
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
-                    const Spacer(),
-                    if (_isLoadingSuggestions)
-                      const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.deepPurple),
-                        ),
-                      ),
-                  ],
-                ),
+                ],
               ),
-
-            // Results list, suggestions, or empty state
-            Expanded(
-              child: _searchQuery.isEmpty
-                  ? _buildSuggestionsView()
-                  : _searchResults.isEmpty && !_isLoading
-                      ? _buildNoResultsState()
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: _searchResults.length,
-                          itemBuilder: (context, index) {
-                            final user = _searchResults[index];
-                            return _buildUserListItem(user, index);
-                          },
-                        ),
             ),
-          ],
-        ),
+          Expanded(
+            child: _searchQuery.isEmpty
+                ? _buildEmptySearchState()
+                : _searchResults.isEmpty && !_isLoading
+                    ? _buildNoResultsState()
+                    : ListView.builder(
+                        itemCount: _searchResults.length,
+                        itemBuilder: (context, index) {
+                          final user = _searchResults[index];
+                          return _buildUserListItem(user);
+                        },
+                      ),
+          ),
+        ],
       ),
       bottomNavigationBar: const BottomNavBar(),
     );
   }
 
-  Widget _buildSuggestionsView() {
-    if (_isLoadingSuggestions) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildUserListItem(Map<String, dynamic> user) {
+    final bool isFollowing = user['isFollowing'] ?? false;
+
+    return InkWell(
+      onTap: () => _navigateToUserProfile(user['id']),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+        child: Row(
           children: [
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
+            CircleAvatar(
+              radius: 28,
+              backgroundColor: Colors.grey.shade200,
+              backgroundImage: user['profileImageUrl'] != null &&
+                      user['profileImageUrl'].isNotEmpty
+                  ? NetworkImage(user['profileImageUrl'])
+                  : null,
+              child: user['profileImageUrl'] == null ||
+                      user['profileImageUrl'].isEmpty
+                  ? Text(
+                      user['username'][0].toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade700,
+                      ),
+                    )
+                  : null,
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Loading suggestions...',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_suggestedUsers.isEmpty) {
-      return _buildEmptySearchState();
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      itemCount: _suggestedUsers.length,
-      itemBuilder: (context, index) {
-        final user = _suggestedUsers[index];
-        return _buildUserListItem(user, index);
-      },
-    );
-  }
-
-  Widget _buildUserListItem(Map<String, dynamic> user, int index) {
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 300 + (index * 100)),
-      margin: const EdgeInsets.only(bottom: 12),
-      child: _buildGradientCard(
-        child: InkWell(
-          onTap: () => _navigateToUserProfile(user['id']),
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                // Profile image with hero animation
-                Hero(
-                  tag: 'profile-${user['id']}',
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.2),
-                          spreadRadius: 1,
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        user['username'] ?? 'Unknown',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      if (user['isVerified'] == true) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.check,
+                            color: Colors.white,
+                            size: 14,
+                          ),
                         ),
                       ],
-                    ),
-                    child: CircleAvatar(
-                      radius: 32,
-                      backgroundColor: Colors.deepPurple.shade100,
-                      backgroundImage: user['profileImageUrl'] != null &&
-                              user['profileImageUrl'].isNotEmpty
-                          ? NetworkImage(user['profileImageUrl'])
-                          : null,
-                      child: user['profileImageUrl'] == null ||
-                              user['profileImageUrl'].isEmpty
-                          ? Text(
-                              user['username'][0].toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.deepPurple,
-                              ),
-                            )
-                          : null,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 20),
-
-                // User info
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            user['username'] ?? 'Unknown',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                              color: Colors.black87,
-                            ),
+                      if (isFollowing) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                          if (user['isVerified'] == true) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.all(2),
-                              decoration: BoxDecoration(
-                                color: Colors.blue,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(
-                                Icons.check,
-                                color: Colors.white,
-                                size: 14,
-                              ),
+                          child: Text(
+                            'Following',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey.shade800,
                             ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          user['accountType'] ?? 'Personal',
-                          style: TextStyle(
-                            color: Colors.deepPurple,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      if (user['bio'] != null && user['bio'].isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          user['bio'],
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade700,
-                            height: 1.3,
                           ),
                         ),
                       ],
                     ],
                   ),
-                ),
-
-                // Follow button
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.deepPurple, Colors.purple.shade300],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ElevatedButton(
-                    onPressed: () {
-                      // Implement follow functionality
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Following ${user['username']}'),
-                          backgroundColor: Colors.green.shade400,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      minimumSize: const Size(80, 40),
-                    ),
-                    child: const Text(
-                      'Follow',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+            OutlinedButton(
+              onPressed: _isFollowingLoading ? null : () => _toggleFollow(user),
+              style: OutlinedButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                side: BorderSide(
+                  color: isFollowing
+                      ? Colors.grey.shade400
+                      : Theme.of(context).primaryColor,
+                ),
+                backgroundColor:
+                    isFollowing ? Colors.grey.shade100 : Colors.transparent,
+                minimumSize: const Size(80, 36),
+              ),
+              child: _isFollowingLoading &&
+                      _followingStatus.containsKey(user['id'])
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(isFollowing ? 'Unfollow' : 'Follow'),
+            ),
+          ],
         ),
       ),
     );

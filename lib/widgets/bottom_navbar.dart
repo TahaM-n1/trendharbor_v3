@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class BottomNavBar extends StatefulWidget {
-  // Remove the accountType parameter, we'll get it from SharedPreferences
   const BottomNavBar({super.key});
 
   @override
