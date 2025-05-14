@@ -90,196 +90,31 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
     super.dispose();
   }
 
-  // Build a metric card for key stats
-  Widget _buildMetricCard(
-      String title, dynamic value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 6,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value.toString(),
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Build engagement chart
-  Widget _buildEngagementChart() {
-    return Container(
-      height: 250,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 6,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Daily Engagement',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: CustomPaint(
-              size: const Size(double.infinity, 200),
-              painter: ChartPainter(_dailyData),
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildLegendItem('Likes', Colors.blue),
-              const SizedBox(width: 16),
-              _buildLegendItem('Comments', Colors.green),
-              const SizedBox(width: 16),
-              _buildLegendItem('Shares', Colors.purple),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Build legend item
-  Widget _buildLegendItem(String label, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 12,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // Build demographic chart
-  Widget _buildDemographicChart() {
-    return Container(
-      height: 250,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 6,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Age Demographics',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 100,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _demographicData.map((data) {
-                      return Text(
-                        '${data['age']}: ${data['percentage']}%',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[700],
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-                Expanded(
-                  child: CustomPaint(
-                    size: const Size(double.infinity, 200),
-                    painter: PieChartPainter(_demographicData),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final isTablet = screenSize.width > 768;
+    final isMobile = screenSize.width <= 480;
+
+    // Responsive dialog sizing
+    final dialogWidth = isMobile
+        ? screenSize.width * 0.95
+        : isTablet
+            ? screenSize.width * 0.7
+            : screenSize.width * 0.9;
+
+    final dialogHeight =
+        isMobile ? screenSize.height * 0.9 : screenSize.height * 0.8;
+
+    // Responsive grid settings
+    final crossAxisCount = isMobile ? 1 : 2;
+    final childAspectRatio = isMobile ? 2.5 : 1.5;
+    final horizontalPadding = isMobile ? 12.0 : 16.0;
+
     return Container(
-      width: MediaQuery.of(context).size.width * 0.9,
-      height: MediaQuery.of(context).size.height * 0.8,
-      padding: const EdgeInsets.all(16),
+      width: dialogWidth,
+      height: dialogHeight,
+      padding: EdgeInsets.all(horizontalPadding),
       child: _isLoading
           ? const Center(
               child: CircularProgressIndicator(),
@@ -290,26 +125,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Campaign Analytics',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey[800],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Campaign Analytics',
+                            style: TextStyle(
+                              fontSize: isMobile ? 20 : 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[800],
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.campaignTitle,
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
+                          const SizedBox(height: 4),
+                          Text(
+                            widget.campaignTitle,
+                            style: TextStyle(
+                              fontSize: isMobile ? 14 : 16,
+                              color: Colors.grey[600],
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: isMobile ? 2 : 1,
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     IconButton(
                       onPressed: () => Navigator.of(context).pop(),
@@ -320,8 +159,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                 ),
                 const SizedBox(height: 8),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  padding: EdgeInsets.symmetric(
+                      vertical: 8, horizontal: isMobile ? 8 : 12),
                   decoration: BoxDecoration(
                     color: Colors.purple.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
@@ -331,11 +170,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                     children: [
                       Icon(Icons.person, color: Colors.purple[700], size: 16),
                       const SizedBox(width: 8),
-                      Text(
-                        'Influencer: ${widget.influencerName}',
-                        style: TextStyle(
-                          color: Colors.purple[700],
-                          fontWeight: FontWeight.w500,
+                      Flexible(
+                        child: Text(
+                          'Influencer: ${widget.influencerName}',
+                          style: TextStyle(
+                            color: Colors.purple[700],
+                            fontWeight: FontWeight.w500,
+                            fontSize: isMobile ? 13 : 14,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -348,6 +191,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                   labelColor: Colors.purple[700],
                   unselectedLabelColor: Colors.grey[600],
                   indicatorColor: Colors.purple[700],
+                  labelStyle: TextStyle(
+                    fontSize: isMobile ? 13 : 14,
+                    fontWeight: FontWeight.w500,
+                  ),
                   tabs: const [
                     Tab(text: 'Overview'),
                     Tab(text: 'Engagement'),
@@ -362,80 +209,92 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                     children: [
                       // Overview tab
                       SingleChildScrollView(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: isMobile ? 4 : 0),
                         child: Column(
                           children: [
                             GridView.count(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
-                              crossAxisCount: 2,
-                              childAspectRatio: 1.5,
-                              crossAxisSpacing: 16,
-                              mainAxisSpacing: 16,
+                              crossAxisCount: crossAxisCount,
+                              childAspectRatio: childAspectRatio,
+                              crossAxisSpacing: isMobile ? 12 : 16,
+                              mainAxisSpacing: isMobile ? 12 : 16,
                               children: [
                                 _buildMetricCard(
                                     'Impressions',
                                     _analyticsData['impressions'],
                                     Icons.visibility,
-                                    Colors.blue),
+                                    Colors.blue,
+                                    isMobile),
                                 _buildMetricCard(
                                     'Engagement',
                                     '${(_analyticsData['engagement'] / _analyticsData['impressions'] * 100).toStringAsFixed(1)}%',
                                     Icons.thumb_up,
-                                    Colors.green),
+                                    Colors.green,
+                                    isMobile),
                                 _buildMetricCard(
                                     'Click Rate',
                                     '${(_analyticsData['clicks'] / _analyticsData['impressions'] * 100).toStringAsFixed(1)}%',
                                     Icons.touch_app,
-                                    Colors.amber),
+                                    Colors.amber,
+                                    isMobile),
                                 _buildMetricCard(
                                     'ROI',
                                     '${_analyticsData['roi'].toStringAsFixed(1)}x',
                                     Icons.attach_money,
-                                    Colors.purple),
+                                    Colors.purple,
+                                    isMobile),
                               ],
                             ),
                             const SizedBox(height: 16),
-                            _buildEngagementChart(),
+                            _buildEngagementChart(isMobile, isTablet),
                           ],
                         ),
                       ),
                       // Engagement tab
                       SingleChildScrollView(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: isMobile ? 4 : 0),
                         child: Column(
                           children: [
                             GridView.count(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
-                              crossAxisCount: 2,
-                              childAspectRatio: 1.5,
-                              crossAxisSpacing: 16,
-                              mainAxisSpacing: 16,
+                              crossAxisCount: crossAxisCount,
+                              childAspectRatio: childAspectRatio,
+                              crossAxisSpacing: isMobile ? 12 : 16,
+                              mainAxisSpacing: isMobile ? 12 : 16,
                               children: [
                                 _buildMetricCard(
                                     'Likes',
                                     _analyticsData['likes'],
                                     Icons.favorite,
-                                    Colors.red),
+                                    Colors.red,
+                                    isMobile),
                                 _buildMetricCard(
                                     'Comments',
                                     _analyticsData['comments'],
                                     Icons.chat_bubble,
-                                    Colors.blue),
+                                    Colors.blue,
+                                    isMobile),
                                 _buildMetricCard(
                                     'Shares',
                                     _analyticsData['shares'],
                                     Icons.share,
-                                    Colors.green),
+                                    Colors.green,
+                                    isMobile),
                                 _buildMetricCard(
                                     'Saves',
                                     _analyticsData['saves'],
                                     Icons.bookmark,
-                                    Colors.amber),
+                                    Colors.amber,
+                                    isMobile),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            SizedBox(height: isMobile ? 12 : 16),
                             Container(
-                              padding: const EdgeInsets.all(16),
+                              padding: EdgeInsets.all(isMobile ? 12 : 16),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(16),
@@ -454,62 +313,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                                   Text(
                                     'Engagement Summary',
                                     style: TextStyle(
-                                      fontSize: 16,
+                                      fontSize: isMobile ? 14 : 16,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.grey[800],
                                     ),
                                   ),
-                                  const SizedBox(height: 16),
-                                  Row(
+                                  SizedBox(height: isMobile ? 12 : 16),
+                                  Column(
                                     children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Total Engagement',
-                                              style: TextStyle(
-                                                color: Colors.grey[600],
-                                                fontSize: 14,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              _analyticsData['engagement']
-                                                  .toString(),
-                                              style: TextStyle(
-                                                fontSize: 20,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.grey[800],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
+                                      _buildSummaryRow(
+                                        'Total Engagement',
+                                        _analyticsData['engagement'].toString(),
+                                        isMobile,
                                       ),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Engagement Rate',
-                                              style: TextStyle(
-                                                color: Colors.grey[600],
-                                                fontSize: 14,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              '${(_analyticsData['engagement'] / _analyticsData['impressions'] * 100).toStringAsFixed(1)}%',
-                                              style: TextStyle(
-                                                fontSize: 20,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.grey[800],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
+                                      SizedBox(height: isMobile ? 12 : 16),
+                                      _buildSummaryRow(
+                                        'Engagement Rate',
+                                        '${(_analyticsData['engagement'] / _analyticsData['impressions'] * 100).toStringAsFixed(1)}%',
+                                        isMobile,
                                       ),
                                     ],
                                   ),
@@ -521,12 +342,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                       ),
                       // Demographics tab
                       SingleChildScrollView(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: isMobile ? 4 : 0),
                         child: Column(
                           children: [
-                            _buildDemographicChart(),
-                            const SizedBox(height: 16),
+                            _buildDemographicChart(isMobile, isTablet),
+                            SizedBox(height: isMobile ? 12 : 16),
                             Container(
-                              padding: const EdgeInsets.all(16),
+                              padding: EdgeInsets.all(isMobile ? 12 : 16),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(16),
@@ -545,15 +368,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                                   Text(
                                     'Geographic Distribution',
                                     style: TextStyle(
-                                      fontSize: 16,
+                                      fontSize: isMobile ? 14 : 16,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.grey[800],
                                     ),
                                   ),
-                                  const SizedBox(height: 16),
+                                  SizedBox(height: isMobile ? 12 : 16),
                                   ..._geographicData.map((data) {
                                     return Padding(
-                                      padding: const EdgeInsets.only(bottom: 8),
+                                      padding: EdgeInsets.only(
+                                          bottom: isMobile ? 6 : 8),
                                       child: Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
@@ -564,7 +388,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                                                 data['region'],
                                                 style: TextStyle(
                                                   color: Colors.grey[700],
-                                                  fontSize: 14,
+                                                  fontSize: isMobile ? 13 : 14,
                                                 ),
                                               ),
                                               const Spacer(),
@@ -572,7 +396,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                                                 '${data['percentage']}%',
                                                 style: TextStyle(
                                                   color: Colors.grey[700],
-                                                  fontSize: 14,
+                                                  fontSize: isMobile ? 13 : 14,
                                                   fontWeight: FontWeight.bold,
                                                 ),
                                               ),
@@ -602,6 +426,246 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                 ),
               ],
             ),
+    );
+  }
+
+  // Updated metric card with responsive sizing
+  Widget _buildMetricCard(
+      String title, dynamic value, IconData icon, Color color, bool isMobile) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+          vertical: isMobile ? 12 : 16, horizontal: isMobile ? 16 : 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: isMobile ? 18 : 20),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: isMobile ? 12 : 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: isMobile ? 6 : 8),
+          Text(
+            value.toString(),
+            style: TextStyle(
+              fontSize: isMobile ? 20 : 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Updated engagement chart with responsive sizing
+  Widget _buildEngagementChart(bool isMobile, bool isTablet) {
+    return Container(
+      height: isMobile ? 200 : 250,
+      padding: EdgeInsets.all(isMobile ? 12 : 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Daily Engagement',
+            style: TextStyle(
+              fontSize: isMobile ? 14 : 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+            ),
+          ),
+          SizedBox(height: isMobile ? 12 : 16),
+          Expanded(
+            child: CustomPaint(
+              size: Size(double.infinity, isMobile ? 150 : 200),
+              painter: ChartPainter(_dailyData),
+            ),
+          ),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: isMobile ? 12 : 16,
+            children: [
+              _buildLegendItem('Likes', Colors.blue, isMobile),
+              _buildLegendItem('Comments', Colors.green, isMobile),
+              _buildLegendItem('Shares', Colors.purple, isMobile),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Updated legend item with responsive sizing
+  Widget _buildLegendItem(String label, Color color, bool isMobile) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: isMobile ? 10 : 12,
+          height: isMobile ? 10 : 12,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.grey[600],
+            fontSize: isMobile ? 11 : 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Updated demographic chart with responsive sizing
+  Widget _buildDemographicChart(bool isMobile, bool isTablet) {
+    return Container(
+      height: isMobile ? 200 : 250,
+      padding: EdgeInsets.all(isMobile ? 12 : 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Age Demographics',
+            style: TextStyle(
+              fontSize: isMobile ? 14 : 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+            ),
+          ),
+          SizedBox(height: isMobile ? 12 : 16),
+          Expanded(
+            child: isMobile
+                ? Column(
+                    children: [
+                      Expanded(
+                        child: CustomPaint(
+                          size: const Size(double.infinity, 120),
+                          painter: PieChartPainter(_demographicData),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: _demographicData.map((data) {
+                          return Text(
+                            '${data['age']}: ${data['percentage']}%',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[700],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      SizedBox(
+                        width: 100,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: _demographicData.map((data) {
+                            return Text(
+                              '${data['age']}: ${data['percentage']}%',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[700],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      Expanded(
+                        child: CustomPaint(
+                          size: const Size(double.infinity, 200),
+                          painter: PieChartPainter(_demographicData),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // New helper method for summary rows
+  Widget _buildSummaryRow(String title, String value, bool isMobile) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            color: Colors.grey[600],
+            fontSize: isMobile ? 13 : 14,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: isMobile ? 18 : 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[800],
+          ),
+        ),
+      ],
     );
   }
 

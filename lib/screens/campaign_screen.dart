@@ -4957,6 +4957,69 @@ class _CampaignsScreenState extends State<CampaignsScreen>
                             ],
                           ),
                         ),
+                        // Add analytics button in campaign header
+                        if (_accountType.toLowerCase() == 'organization') ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.blue.shade200),
+                            ),
+                            child: InkWell(
+                              onTap: () {
+                                // Get the first influencer with in_progress or completed status
+                                final influencerBids =
+                                    Map<String, Map<String, dynamic>>.from(
+                                        (campaign['influencerBids'] ?? {}).map(
+                                            (key, value) => MapEntry(
+                                                key,
+                                                Map<String, dynamic>.from(
+                                                    value ?? {}))));
+
+                                final eligibleInfluencer = influencerBids
+                                    .entries
+                                    .where((entry) => [
+                                          'in_progress',
+                                          'completed'
+                                        ].contains(entry.value['status']))
+                                    .firstOrNull;
+
+                                if (eligibleInfluencer != null) {
+                                  _showAnalyticsScreen(
+                                      campaignId, eligibleInfluencer.key);
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                          'No analytics available yet. Campaign must be in progress.'),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.analytics,
+                                      size: 14, color: Colors.blue.shade700),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Analytics',
+                                    style: TextStyle(
+                                      color: Colors.blue.shade700,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                         // Only show delete option for Organizations
                         if (_accountType.toLowerCase() == 'organization') ...[
                           const SizedBox(width: 8),
