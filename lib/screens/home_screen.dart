@@ -4,7 +4,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import '../widgets/bottom_navbar.dart';
+import '../widgets/video_post_widget.dart';
+import '../services/video_player_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -41,6 +45,18 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    
+    // Make sure we pause all videos when the screen is disposed
+    try {
+      if (mounted) {
+        final videoService = Provider.of<VideoPlayerService>(context, listen: false);
+        videoService.pauseAllVideos();
+        print('Successfully paused all videos on home screen dispose');
+      }
+    } catch (e) {
+      print('Error handling videos on dispose: $e');
+    }
+    
     super.dispose();
   }
 
@@ -359,14 +375,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _sharePostInDM(Map<String, dynamic> post) {
+    // Check if widget is still mounted
+    if (!mounted) return;
+    
     final TextEditingController searchController = TextEditingController();
     List<Map<String, dynamic>> allUsers = [];
     List<Map<String, dynamic>> filteredUsers = [];
     bool isLoading = true;
     String? errorMessage;
     
+    // Use rootNavigator: true to ensure dialog is shown properly
     showDialog(
       context: context,
+      useRootNavigator: true,
       builder: (BuildContext dialogContext) {
         return StatefulBuilder(
           builder: (context, setState) {
@@ -467,7 +488,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                     subtitle: Text(user['accountType']),
                                     onTap: () async {
                                       Navigator.pop(dialogContext);
-                                      await _sendPostToUser(user['id'], post);
+                                      // Only proceed if widget is still mounted
+                                      if (mounted) {
+                                        await _sendPostToUser(user['id'], post);
+                                      }
                                     },
                                   );
                                 },
@@ -487,6 +511,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     ).then((_) {
+      // Dispose controller safely
       searchController.dispose();
     });
   }
@@ -495,6 +520,9 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) return;
+      
+      // Check if widget is still mounted before showing dialog
+      if (!mounted) return;
       
       showDialog(
         context: context,
@@ -517,9 +545,12 @@ class _HomeScreenState extends State<HomeScreen> {
           .collection('chats')
           .where('participants', arrayContains: currentUser.uid)
           .get();
-      
+    
+      // Check if widget is still mounted after async operation
+      if (!mounted) return;
+    
       String chatId = '';
-      
+    
       for (final doc in chatQuery.docs) {
         final List<dynamic> participants = doc['participants'];
         if (participants.contains(recipientId)) {
@@ -527,7 +558,7 @@ class _HomeScreenState extends State<HomeScreen> {
           break;
         }
       }
-      
+    
       if (chatId.isEmpty) {
         final chatDoc = await FirebaseFirestore.instance.collection('chats').add({
           'participants': [currentUser.uid, recipientId],
@@ -551,7 +582,23 @@ class _HomeScreenState extends State<HomeScreen> {
           'updatedAt': FieldValue.serverTimestamp(),
         });
       }
-      
+    
+      // Create the shared post object
+      final sharedPost = {
+        'postId': post['id'],
+        'mediaType': post['mediaType'] ?? 'image',
+        'caption': post['caption'] ?? '',
+        'username': post['username'],
+      };
+    
+      // Add appropriate media URL based on type
+      if (post['mediaType'] == 'video') {
+        sharedPost['videoUrl'] = post['videoUrl'];
+        sharedPost['thumbnailUrl'] = post['thumbnailUrl'] ?? '';
+      } else {
+        sharedPost['imageUrl'] = post['imageUrl'];
+      }
+    
       await FirebaseFirestore.instance.collection('messages').add({
         'chatId': chatId,
         'senderId': currentUser.uid,
@@ -559,33 +606,34 @@ class _HomeScreenState extends State<HomeScreen> {
         'timestamp': FieldValue.serverTimestamp(),
         'type': 'post_share',
         'isRead': false,
-        'sharedPost': {
-          'postId': post['id'],
-          'imageUrl': post['imageUrl'],
-          'username': post['username'],
-          'caption': post['caption'] ?? '',
-        },
+        'sharedPost': sharedPost,
       });
-      
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Post shared successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+    
+      // Check if widget is still mounted before showing feedback
+      if (!mounted) return;
+    
+      // Close the loading dialog
+      Navigator.of(context, rootNavigator: true).pop();
+    
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Post shared successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error sharing post: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      // Check if widget is still mounted before showing error feedback
+      if (!mounted) return;
+    
+      // Close the loading dialog, using rootNavigator to ensure it's closed
+      Navigator.of(context, rootNavigator: true).pop();
+    
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error sharing post: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
       print('Error sharing post: $e');
     }
   }
@@ -656,6 +704,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showLikeAnimation(String postId) {
+    if (!mounted) return;
+  
     setState(() {
       _showLikeOverlay[postId] = true;
     });
@@ -694,7 +744,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadPostComments(String postId) async {
-    if (_loadingComments[postId] == true) return;
+    if (_loadingComments[postId] == true || !mounted) return;
     
     setState(() {
       _loadingComments[postId] = true;
@@ -717,22 +767,24 @@ class _HomeScreenState extends State<HomeScreen> {
         };
       }).toList();
       
-      if (mounted) {
-        setState(() {
-          _postComments[postId] = comments;
-          _loadingComments[postId] = false;
-        });
-        
-        print('Loaded ${comments.length} comments for post $postId');
-      }
+      // Check if widget is still mounted before updating state
+      if (!mounted) return;
+      
+      setState(() {
+        _postComments[postId] = comments;
+        _loadingComments[postId] = false;
+      });
+      
+      print('Loaded ${comments.length} comments for post $postId');
     } catch (e) {
       print('Error loading comments for post $postId: $e');
-      if (mounted) {
-        setState(() {
-          _loadingComments[postId] = false;
-          _postComments[postId] = [];
-        });
-      }
+      // Check if widget is still mounted before updating state
+      if (!mounted) return;
+      
+      setState(() {
+        _loadingComments[postId] = false;
+        _postComments[postId] = [];
+      });
     }
   }
 
@@ -1026,6 +1078,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               
+              // Media content
               GestureDetector(
                 onDoubleTap: () {
                   _showLikeAnimation(postId);
@@ -1037,39 +1090,51 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    AspectRatio(
-                      aspectRatio: 1.0,
-                      child: Hero(
-                        tag: 'post-${post['id']}',
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey[200],
+                    // Check if it's a video post
+                    post['mediaType'] == 'video'
+                        ? SizedBox(
+                            height: MediaQuery.of(context).size.width, // Make it square
+                            child: VideoPostWidget(
+                              postId: post['id'],
+                              videoUrl: post['videoUrl'],
+                              thumbnailUrl: post['thumbnailUrl'] ?? '',
+                              autoplay: true,
+                            ),
+                          )
+                        : AspectRatio(
+                            aspectRatio: 1.0,
+                            child: Hero(
+                              tag: 'post-${post['id']}',
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[200],
+                                ),
+                                child: imageUrl != null && imageUrl.isNotEmpty
+                                    ? Image.network(
+                                        "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
+                                        fit: BoxFit.contain,
+                                        loadingBuilder: (context, child, loadingProgress) {
+                                          if (loadingProgress == null) return child;
+                                          return Center(
+                                            child: CircularProgressIndicator(
+                                              value: loadingProgress.expectedTotalBytes != null
+                                                  ? loadingProgress.cumulativeBytesLoaded /
+                                                      loadingProgress.expectedTotalBytes!
+                                                  : null,
+                                              color: Colors.blue.shade300,
+                                            ),
+                                          );
+                                        },
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return const Icon(Icons.broken_image, size: 50);
+                                        },
+                                      )
+                                    : const Center(child: Icon(Icons.image, size: 50)),
+                              ),
+                            ),
                           ),
-                          child: imageUrl != null && imageUrl.isNotEmpty
-                              ? Image.network(
-                                  "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
-                                  fit: BoxFit.contain,
-                                  loadingBuilder: (context, child, loadingProgress) {
-                                    if (loadingProgress == null) return child;
-                                    return Center(
-                                      child: CircularProgressIndicator(
-                                        value: loadingProgress.expectedTotalBytes != null
-                                            ? loadingProgress.cumulativeBytesLoaded /
-                                                loadingProgress.expectedTotalBytes!
-                                            : null,
-                                        color: Colors.blue.shade300,
-                                      ),
-                                    );
-                                  },
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return const Icon(Icons.broken_image, size: 50);
-                                  },
-                                )
-                              : const Center(child: Icon(Icons.image, size: 50)),
-                        ),
-                      ),
-                    ),
-                    
+
+                    // Like animation overlay
                     AnimatedOpacity(
                       opacity: _showLikeOverlay[postId] ?? false ? 1.0 : 0.0,
                       duration: const Duration(milliseconds: 300),

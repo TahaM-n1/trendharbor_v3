@@ -6,6 +6,7 @@ import '../services/chat_service.dart';
 import '../models/message_model.dart';
 import '../models/chat_model.dart'; 
 import '../models/user_model.dart'; 
+import '../widgets/video_post_widget.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -399,49 +400,42 @@ class _ChatScreenState extends State<ChatScreen> {
                         aspectRatio: 1.0, // Square aspect ratio for images
                         child: Container(
                           color: Colors.grey.shade300,
-                          child: message.sharedPost != null && message.sharedPost?['imageUrl'] != null
-                              ? Image.network(
-                                  message.sharedPost!['imageUrl'] as String,
-                                  fit: BoxFit.cover,
-                                  loadingBuilder: (context, child, loadingProgress) {
-                                    if (loadingProgress == null) return child;
-                                    return Center(
-                                      child: CircularProgressIndicator(
-                                        color: Colors.blue.shade300,
-                                        value: loadingProgress.expectedTotalBytes != null
-                                            ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                                            : null,
-                                      ),
-                                    );
-                                  },
-                                  errorBuilder: (context, error, _) => Center(
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                          child: message.sharedPost != null 
+                              ? (message.sharedPost?['mediaType'] == 'video'
+                                  ? Stack(
+                                      fit: StackFit.expand,
                                       children: [
-                                        Icon(
-                                          Icons.broken_image,
-                                          size: 40,
-                                          color: Colors.grey.shade400,
+                                        // Use thumbnail for video preview
+                                        Image.network(
+                                          message.sharedPost!['thumbnailUrl'] as String? ?? '',
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return const Icon(Icons.video_library, size: 40);
+                                          },
                                         ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Image not available',
-                                          style: TextStyle(
-                                            color: Colors.grey.shade600,
-                                            fontSize: 12,
+                                        // Video play icon overlay
+                                        const Center(
+                                          child: Icon(
+                                            Icons.play_circle_outline,
+                                            color: Colors.white,
+                                            size: 40,
+                                            shadows: [
+                                              Shadow(blurRadius: 5, color: Colors.black45)
+                                            ],
                                           ),
-                                        ),
+                                        )
                                       ],
-                                    ),
-                                  ),
-                                )
-                              : Center(
-                                  child: Icon(
-                                    Icons.image,
-                                    size: 40,
-                                    color: Colors.grey.shade400,
-                                  ),
-                                ),
+                                    )
+                                  : (message.sharedPost?['imageUrl'] != null
+                                      ? Image.network(
+                                          message.sharedPost!['imageUrl'] as String,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return const Icon(Icons.broken_image, size: 40);
+                                          },
+                                        )
+                                      : const Icon(Icons.image_not_supported, size: 40)))
+                              : const Icon(Icons.image_not_supported, size: 40),
                         ),
                       ),
                     ),

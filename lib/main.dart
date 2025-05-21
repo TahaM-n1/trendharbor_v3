@@ -17,6 +17,7 @@ import 'screens/direct_messages_screen.dart';
 import 'screens/chat_screen.dart';
 import 'services/user_service.dart';
 import 'services/chat_service.dart';
+import 'services/video_player_service.dart'; // Add this import
 import 'screens/collaborations_screen.dart';
 import 'screens/change_password_screen.dart';
 import 'screens/product_detail_screen.dart';
@@ -37,6 +38,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => UserService()),
         ChangeNotifierProvider(create: (_) => ChatService()),
+        ChangeNotifierProvider(create: (_) => VideoPlayerService()), // Add this provider
         // Your other providers
       ],
       child: MyApp(),

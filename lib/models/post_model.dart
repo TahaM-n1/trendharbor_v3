@@ -3,18 +3,22 @@ import 'user_model.dart';
 
 class Post {
   final User user;
-  final String imageUrl;
+  final String? imageUrl;
+  final String? videoUrl;
   final String caption;
   int likes;
   final int comments;
-  bool liked; // Add this field
+  bool liked;
+  final String type; // 'image' or 'video'
 
   Post({
     required this.user,
-    required this.imageUrl,
+    this.imageUrl,
+    this.videoUrl,
     required this.caption,
     required this.likes,
     required this.comments,
-    this.liked = false, // Default to false
+    this.liked = false,
+    required this.type,
   });
 }

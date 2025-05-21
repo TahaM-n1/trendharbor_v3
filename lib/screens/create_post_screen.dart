@@ -6,6 +6,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
+import 'dart:math';  // Add this for min()
+import 'dart:typed_data';  // Add this for Uint8List
+import 'package:video_player/video_player.dart';
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key});
@@ -15,14 +18,17 @@ class CreatePostScreen extends StatefulWidget {
 }
 
 class _CreatePostScreenState extends State<CreatePostScreen> {
-  XFile? _selectedImage;
+  XFile? _selectedMedia;
+  String _mediaType = 'image'; // 'image' or 'video'
   final TextEditingController _captionController = TextEditingController();
   bool _isLoading = false;
   final ImagePicker _picker = ImagePicker();
+  VideoPlayerController? _videoController;
   
   @override
   void dispose() {
     _captionController.dispose();
+    _videoController?.dispose();
     super.dispose();
   }
   
@@ -34,8 +40,13 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       );
       
       if (image != null) {
+        // Clean up any existing video controller
+        _videoController?.dispose();
+        _videoController = null;
+        
         setState(() {
-          _selectedImage = image;
+          _selectedMedia = image;
+          _mediaType = 'image';
         });
       }
     } catch (e) {
@@ -44,11 +55,43 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       );
     }
   }
+
+  Future<void> _pickVideo() async {
+    try {
+      final XFile? video = await _picker.pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: const Duration(minutes: 1), // Limit to 1 minute videos
+      );
+      
+      if (video != null) {
+        // Initialize video controller for preview
+        _videoController?.dispose();
+        
+        if (kIsWeb) {
+          _videoController = VideoPlayerController.networkUrl(Uri.parse(video.path));
+        } else {
+          _videoController = VideoPlayerController.file(File(video.path));
+        }
+        
+        await _videoController!.initialize();
+        await _videoController!.setLooping(true);
+        
+        setState(() {
+          _selectedMedia = video;
+          _mediaType = 'video';
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error selecting video: $e')),
+      );
+    }
+  }
   
   Future<void> _uploadPost() async {
-    if (_selectedImage == null) {
+    if (_selectedMedia == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select an image first')),
+        const SnackBar(content: Text('Please select an image or video first')),
       );
       return;
     }
@@ -75,42 +118,67 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       
       final userData = userDoc.data()!;
       
-      // 1. Upload image to Firebase Storage
-      final String fileName = 'posts/${currentUser.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      // 1. Upload media to Firebase Storage
+      final String fileExtension = _mediaType == 'image' ? '.jpg' : '.mp4';
+      final String fileName = 'posts/${currentUser.uid}_${DateTime.now().millisecondsSinceEpoch}$fileExtension';
       final storageRef = FirebaseStorage.instance.ref().child(fileName);
       
       UploadTask uploadTask;
       if (kIsWeb) {
         // Web platform
-        final bytes = await _selectedImage!.readAsBytes();
+        final bytes = await _selectedMedia!.readAsBytes();
         uploadTask = storageRef.putData(
           bytes,
-          SettableMetadata(contentType: 'image/jpeg'),
+          SettableMetadata(contentType: _mediaType == 'image' ? 'image/jpeg' : 'video/mp4'),
         );
       } else {
         // Mobile platform
-        final imageFile = File(_selectedImage!.path);
-        uploadTask = storageRef.putFile(imageFile);
+        final mediaFile = File(_selectedMedia!.path);
+        uploadTask = storageRef.putFile(mediaFile);
       }
       
       // Wait for upload to complete
       final TaskSnapshot taskSnapshot = await uploadTask;
       final String downloadUrl = await taskSnapshot.ref.getDownloadURL();
       
-      // 2. Create post document in Firestore
+      // 2. Generate or upload thumbnail for videos
+      String? thumbnailUrl;
+      if (_mediaType == 'video') {
+        // For simplicity, we're just using a specific frame from the video
+        // In a real app, you'd want to generate an actual thumbnail
+        final String thumbFileName = 'thumbnails/${currentUser.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final thumbRef = FirebaseStorage.instance.ref().child(thumbFileName);
+        
+        // For web, we'd need to use a package like video_thumbnail to generate
+        // For this example, we're just using a placeholder approach
+        // In a real app, you'd generate a proper thumbnail:
+        
+        // Example placeholder logic - in reality, generate from the video:
+        final Uint8List placeholderData = await _selectedMedia!.readAsBytes(); // This isn't a real thumbnail
+        
+        final thumbUploadTask = thumbRef.putData(
+          placeholderData.sublist(0, min(100000, placeholderData.length)), // Just use part of the data as a mock
+          SettableMetadata(contentType: 'image/jpeg'),
+        );
+        
+        final thumbSnapshot = await thumbUploadTask;
+        thumbnailUrl = await thumbSnapshot.ref.getDownloadURL();
+      }
+      
+      // 3. Create post document in Firestore
       await FirebaseFirestore.instance.collection('posts').add({
         'userId': currentUser.uid,
         'username': userData['username'] ?? 'Unknown User',
         'userProfileImage': userData['profileImageUrl'] ?? '',
-        'imageUrl': downloadUrl,
+        'mediaType': _mediaType,
+        'imageUrl': _mediaType == 'image' ? downloadUrl : null,
+        'videoUrl': _mediaType == 'video' ? downloadUrl : null,
+        'thumbnailUrl': thumbnailUrl,  // Only for videos
         'caption': _captionController.text,
         'likes': 0,
         'comments': 0,
         'timestamp': FieldValue.serverTimestamp(),
       });
-      
-      // 3. Update user's post count in Firestore (optional)
-      // You can keep a count of posts in the user document
       
       if (mounted) {
         setState(() {
@@ -118,8 +186,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Post created successfully!'),
+          SnackBar(
+            content: Text('${_mediaType.capitalize()} posted successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -147,7 +215,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Create Post'),
+        title: Text('Create ${_mediaType.capitalize()}'),
         actions: [
           TextButton(
             onPressed: _isLoading ? null : _uploadPost,
@@ -174,16 +242,41 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(
-              maxWidth: 700, // Match the constraint from post_detail_screen
+              maxWidth: 700,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Image Preview or Selector
+                // Media type selector
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment<String>(
+                        value: 'image',
+                        label: Text('Photo'),
+                        icon: Icon(Icons.image),
+                      ),
+                      ButtonSegment<String>(
+                        value: 'video',
+                        label: Text('Reel'),
+                        icon: Icon(Icons.videocam),
+                      ),
+                    ],
+                    selected: {_mediaType},
+                    onSelectionChanged: (Set<String> selection) {
+                      setState(() {
+                        _mediaType = selection.first;
+                      });
+                    },
+                  ),
+                ),
+                
+                // Media Preview or Selector
                 GestureDetector(
-                  onTap: _pickImage,
+                  onTap: _mediaType == 'image' ? _pickImage : _pickVideo,
                   child: AspectRatio(
-                    aspectRatio: 1.0, // Square aspect ratio, similar to post images
+                    aspectRatio: 1.0,
                     child: Container(
                       decoration: BoxDecoration(
                         color: Colors.grey[200],
@@ -192,36 +285,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                           width: 1,
                         ),
                       ),
-                      child: _selectedImage == null
-                          ? const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.add_photo_alternate,
-                                    size: 64,
-                                    color: Colors.grey,
-                                  ),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    'Tap to select an image',
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : kIsWeb
-                              ? Image.network(
-                                  _selectedImage!.path,
-                                  fit: BoxFit.contain, // Changed to contain to avoid stretching
-                                )
-                              : Image.file(
-                                  File(_selectedImage!.path),
-                                  fit: BoxFit.contain, // Changed to contain to avoid stretching
-                                ),
+                      child: _buildMediaPreview(),
                     ),
                   ),
                 ),
@@ -257,7 +321,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                         ),
                       ),
                       
-                      // Hashtags suggestion (optional enhancement)
+                      // Hashtags suggestion
                       const SizedBox(height: 16),
                       const Text(
                         'Popular Hashtags',
@@ -278,6 +342,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                             _buildHashtagChip('#ootd'),
                             _buildHashtagChip('#lifestyle'),
                             _buildHashtagChip('#beauty'),
+                            _buildHashtagChip('#reels'),
+                            _buildHashtagChip('#trending'),
                           ],
                         ),
                       ),
@@ -285,7 +351,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   ),
                 ),
                 
-                // Post settings (optional enhancement)
+                // Post settings
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   child: Column(
@@ -327,7 +393,73 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
   }
 
-  // Helper widget for hashtag chips
+  Widget _buildMediaPreview() {
+    if (_selectedMedia == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _mediaType == 'image' ? Icons.add_photo_alternate : Icons.video_call,
+              size: 64,
+              color: Colors.grey,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Tap to select ${_mediaType == 'image' ? 'an image' : 'a video'}',
+              style: const TextStyle(
+                color: Colors.grey,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (_mediaType == 'image') {
+      return kIsWeb
+          ? Image.network(
+              _selectedMedia!.path,
+              fit: BoxFit.contain,
+            )
+          : Image.file(
+              File(_selectedMedia!.path),
+              fit: BoxFit.contain,
+            );
+    } else {
+      // Video preview
+      if (_videoController != null && _videoController!.value.isInitialized) {
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            AspectRatio(
+              aspectRatio: _videoController!.value.aspectRatio,
+              child: VideoPlayer(_videoController!),
+            ),
+            FloatingActionButton(
+              onPressed: () {
+                setState(() {
+                  if (_videoController!.value.isPlaying) {
+                    _videoController!.pause();
+                  } else {
+                    _videoController!.play();
+                  }
+                });
+              },
+              backgroundColor: Colors.black54,
+              child: Icon(
+                _videoController!.value.isPlaying ? Icons.pause : Icons.play_arrow,
+              ),
+            ),
+          ],
+        );
+      } else {
+        return const Center(
+          child: CircularProgressIndicator(),
+        );
+      }
+    }
+  }
+
   Widget _buildHashtagChip(String hashtag) {
     return Padding(
       padding: const EdgeInsets.only(right: 8.0),
@@ -363,5 +495,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         ),
       ),
     );
+  }
+}
+
+// Extension to capitalize first letter of a string
+extension StringExtension on String {
+  String capitalize() {
+    return "${this[0].toUpperCase()}${substring(1)}";
   }
 }

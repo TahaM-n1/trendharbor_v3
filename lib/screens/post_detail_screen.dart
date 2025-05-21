@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import '../widgets/video_post_widget.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final String postId;
@@ -378,56 +379,62 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           child: Stack(
                             alignment: Alignment.center,
                             children: [
-                              // Hero image
-                              Hero(
-                                tag: 'post-${post['id']}',
-                                child: AspectRatio(
-                                  aspectRatio: 1.0, // Square aspect ratio
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[100], // Lighter background while loading
-                                    ),
-                                    child: Image.network(
-                                      post['imageUrl'],
-                                      fit: BoxFit.contain, // Contain to avoid stretching
-                                      loadingBuilder: (context, child, loadingProgress) {
-                                        if (loadingProgress == null) return child;
-                                        return Center(
-                                          child: CircularProgressIndicator(
-                                            value: loadingProgress.expectedTotalBytes != null
-                                                ? loadingProgress.cumulativeBytesLoaded / 
-                                                  loadingProgress.expectedTotalBytes!
-                                                : null,
-                                            color: Colors.blue.shade300,
+                              // Check if it's a video post
+                              post['mediaType'] == 'video'
+                                  ? VideoPostWidget(
+                                      postId: post['id'],
+                                      videoUrl: post['videoUrl'],
+                                      thumbnailUrl: post['thumbnailUrl'] ?? post['videoUrl'],
+                                    )
+                                  : Hero(
+                                      tag: 'post-${post['id']}',
+                                      child: AspectRatio(
+                                        aspectRatio: 1.0, // Square aspect ratio
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey[100], // Lighter background while loading
                                           ),
-                                        );
-                                      },
-                                      errorBuilder: (context, error, stackTrace) {
-                                        print("Error loading post image: $error");
-                                        return Center(
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Icon(
-                                                Icons.broken_image,
-                                                size: 50,
-                                                color: Colors.grey.shade400,
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                'Image not available',
-                                                style: TextStyle(color: Colors.grey.shade600),
-                                              ),
-                                            ],
+                                          child: Image.network(
+                                            post['imageUrl'],
+                                            fit: BoxFit.contain, // Contain to avoid stretching
+                                            loadingBuilder: (context, child, loadingProgress) {
+                                              if (loadingProgress == null) return child;
+                                              return Center(
+                                                child: CircularProgressIndicator(
+                                                  value: loadingProgress.expectedTotalBytes != null
+                                                      ? loadingProgress.cumulativeBytesLoaded / 
+                                                        loadingProgress.expectedTotalBytes!
+                                                      : null,
+                                                  color: Colors.blue.shade300,
+                                                ),
+                                              );
+                                            },
+                                            errorBuilder: (context, error, stackTrace) {
+                                              print("Error loading post image: $error");
+                                              return Center(
+                                                child: Column(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  children: [
+                                                    Icon(
+                                                      Icons.broken_image,
+                                                      size: 50,
+                                                      color: Colors.grey.shade400,
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    Text(
+                                                      'Image not available',
+                                                      style: TextStyle(color: Colors.grey.shade600),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            },
                                           ),
-                                        );
-                                      },
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
-                              ),
-                              
-                              // Like animation overlay - controlled by state
+                                    
+                              // Like animation overlay
                               AnimatedOpacity(
                                 opacity: _showLikeOverlay ? 1.0 : 0.0,
                                 duration: const Duration(milliseconds: 300),

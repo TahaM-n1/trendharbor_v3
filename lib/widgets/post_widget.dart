@@ -70,11 +70,22 @@ class _PostWidgetState extends State<PostWidget> {
         // Post Image with fixed aspect ratio
         AspectRatio(
           aspectRatio: 1.0, // 1:1 Square aspect ratio (Instagram default)
-          child: Image.asset(
-            widget.post.imageUrl,
-            fit: BoxFit.cover,
-            width: double.infinity,
-          ),
+          child: widget.post.imageUrl != null
+              ? Image.asset(
+                  widget.post.imageUrl!,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                )
+              : Container(
+                  color: Colors.grey[300],
+                  child: const Center(
+                    child: Icon(
+                      Icons.image_not_supported,
+                      size: 50,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
         ),
         // Interaction Buttons
         Padding(

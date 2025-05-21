@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
+
+import '../services/video_player_service.dart';
 import '../widgets/bottom_navbar.dart';
 
 class ExploreScreen extends StatefulWidget {
@@ -41,6 +44,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    // Stop all videos when leaving the explore screen
+    Provider.of<VideoPlayerService>(context, listen: false).pauseAllVideos();
     super.dispose();
   }
 
@@ -283,9 +288,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
-                                        imageUrl != null && imageUrl.isNotEmpty
+                                        post['mediaType'] == 'video'
                                             ? Image.network(
-                                                "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
+                                                post['thumbnailUrl'] ?? '',
                                                 fit: BoxFit.cover,
                                                 loadingBuilder: (context, child, loadingProgress) {
                                                   if (loadingProgress == null) return child;
@@ -310,10 +315,55 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                                   );
                                                 },
                                               )
-                                            : Container(
-                                                color: Colors.grey.shade200,
-                                                child: const Icon(Icons.image, color: Colors.grey),
+                                            : imageUrl != null && imageUrl.isNotEmpty
+                                                ? Image.network(
+                                                    "${imageUrl}${imageUrl.contains('?') ? '&' : '?'}t=${DateTime.now().millisecondsSinceEpoch}",
+                                                    fit: BoxFit.cover,
+                                                    loadingBuilder: (context, child, loadingProgress) {
+                                                      if (loadingProgress == null) return child;
+                                                      return Container(
+                                                        color: Colors.grey.shade200,
+                                                        child: Center(
+                                                          child: CircularProgressIndicator(
+                                                            value: loadingProgress.expectedTotalBytes != null
+                                                                ? loadingProgress.cumulativeBytesLoaded /
+                                                                    loadingProgress.expectedTotalBytes!
+                                                                : null,
+                                                            strokeWidth: 2,
+                                                            color: Colors.blue.shade300,
+                                                          ),
+                                                        ),
+                                                      );
+                                                    },
+                                                    errorBuilder: (context, error, stackTrace) {
+                                                      return Container(
+                                                        color: Colors.grey.shade200,
+                                                        child: const Icon(Icons.broken_image, color: Colors.grey),
+                                                      );
+                                                    },
+                                                  )
+                                                : Container(
+                                                    color: Colors.grey.shade200,
+                                                    child: const Icon(Icons.image, color: Colors.grey),
+                                                  ),
+                                        // Video icon overlay for videos
+                                        if (post['mediaType'] == 'video')
+                                          Positioned(
+                                            top: 8,
+                                            right: 8,
+                                            child: Container(
+                                              padding: const EdgeInsets.all(4),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withOpacity(0.6),
+                                                borderRadius: BorderRadius.circular(4),
                                               ),
+                                              child: const Icon(
+                                                Icons.videocam,
+                                                color: Colors.white,
+                                                size: 16,
+                                              ),
+                                            ),
+                                          ),
                                         // Gradient overlay at bottom for text
                                         Positioned(
                                           left: 0,
