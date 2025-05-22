@@ -122,6 +122,32 @@ class _CartScreenState extends State<CartScreen> {
     }
   }
   
+  Future<void> _removeCartItem(CartItem item) async {
+    try {
+      // Optimistically update UI
+      setState(() {
+        _cartItems.removeWhere((i) => i.id == item.id);
+      });
+      
+      // Delete from Firestore
+      final success = await _shopService.removeCartItem(item.id);
+      if (!success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error removing item')),
+        );
+        await _loadCartItems(); // Reload to ensure consistency
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error removing item: $e')),
+        );
+        // Reload cart to ensure consistency
+        await _loadCartItems();
+      }
+    }
+  }
+  
   double get _totalPrice {
     return _cartItems.fold(0, (sum, item) => sum + item.totalPrice);
   }
@@ -196,7 +222,7 @@ class _CartScreenState extends State<CartScreen> {
                               ),
                             ),
                             onDismissed: (direction) {
-                              _updateItemQuantity(item, 0);
+                              _removeCartItem(item);
                             },
                             child: Card(
                               margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -308,11 +334,12 @@ class _CartScreenState extends State<CartScreen> {
                             ),
                             const SizedBox(height: 16),
                             ElevatedButton(
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Checkout coming soon')),
-                                );
-                              },
+                              onPressed: _cartItems.isNotEmpty ? () {
+                                context.push('/checkout', extra: {
+                                  'cartItems': _cartItems,
+                                  'totalAmount': _totalPrice
+                                });
+                              } : null,
                               style: ElevatedButton.styleFrom(
                                 minimumSize: const Size(double.infinity, 48),
                                 shape: RoundedRectangleBorder(

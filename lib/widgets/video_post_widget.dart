@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import '../services/video_player_service.dart';
+import 'package:http/http.dart' as http;
 
 class VideoPostWidget extends StatefulWidget {
   final String postId;
@@ -46,7 +47,18 @@ class _VideoPostWidgetState extends State<VideoPostWidget> {
   Future<void> _initializeController() async {
     print('Initializing controller for video: ${widget.videoUrl}');
     try {
-      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+      // First, verify the video URL is accessible
+      final response = await http.head(Uri.parse(widget.videoUrl));
+      if (response.statusCode != 200) {
+        throw Exception('Video URL returned status code ${response.statusCode}');
+      }
+
+      _controller = VideoPlayerController.networkUrl(
+        Uri.parse(widget.videoUrl),
+        httpHeaders: {
+          'Access-Control-Allow-Origin': '*',
+        },
+      );
       
       await _controller!.initialize();
       _controller!.setLooping(true);

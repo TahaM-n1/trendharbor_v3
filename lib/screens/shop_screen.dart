@@ -329,6 +329,12 @@ class _ShopScreenState extends State<ShopScreen> {
               );
             },
           ),
+          if (_accountType.toLowerCase() == 'organization')
+            IconButton(
+              icon: const Icon(Icons.assignment),
+              tooltip: 'View Orders',
+              onPressed: () => context.push('/seller-orders'),
+            ),
           IconButton(
             icon: const Icon(Icons.shopping_cart),
             onPressed: () => context.go('/cart'),

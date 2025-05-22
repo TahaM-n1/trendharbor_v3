@@ -64,24 +64,48 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       );
       
       if (video != null) {
-        // Initialize video controller for preview
+        print('Video selected: ${video.path}');
+        // Dispose any existing controller
         _videoController?.dispose();
+        _videoController = null;
         
-        if (kIsWeb) {
-          _videoController = VideoPlayerController.networkUrl(Uri.parse(video.path));
-        } else {
-          _videoController = VideoPlayerController.file(File(video.path));
-        }
-        
-        await _videoController!.initialize();
-        await _videoController!.setLooping(true);
-        
+        // Set the selected media first
         setState(() {
           _selectedMedia = video;
           _mediaType = 'video';
         });
+        
+        try {
+          if (kIsWeb) {
+            // On web, we need to handle the path differently
+            // Web paths are either data URLs or blob URLs
+            _videoController = VideoPlayerController.networkUrl(
+              Uri.parse(video.path)
+            );
+          } else {
+            // On mobile, we can use the file directly
+            _videoController = VideoPlayerController.file(File(video.path));
+          }
+          
+          print('Initializing video controller');
+          await _videoController!.initialize();
+          await _videoController!.setLooping(true);
+          
+          if (mounted) {
+            setState(() {
+              // Update UI after controller is initialized
+            });
+            print('Video controller initialized successfully');
+          }
+        } catch (e) {
+          print('Error initializing video controller: $e');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error previewing video: $e')),
+          );
+        }
       }
     } catch (e) {
+      print('Error selecting video: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error selecting video: $e')),
       );

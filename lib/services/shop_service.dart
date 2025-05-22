@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/product_model.dart';
 import '../models/cart_model.dart';
+import '../models/product_order_model.dart' as order_model;
 
 class ShopService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -159,17 +160,15 @@ class ShopService {
       }
       
       if (quantity <= 0) {
+        // Delete item if quantity is 0 or less
         await _firestore
-            .collection('users')
-            .doc(currentUserId)
-            .collection('cart')
+            .collection('cartItems')
             .doc(itemId)
             .delete();
       } else {
+        // Update quantity if greater than 0
         await _firestore
-            .collection('users')
-            .doc(currentUserId)
-            .collection('cart')
+            .collection('cartItems')
             .doc(itemId)
             .update({'quantity': quantity});
       }
@@ -188,10 +187,10 @@ class ShopService {
         return false;
       }
       
+      // This was incorrectly using users/[id]/cart instead of cartItems
       final cartSnapshot = await _firestore
-          .collection('users')
-          .doc(currentUserId)
-          .collection('cart')
+          .collection('cartItems')
+          .where('userId', isEqualTo: currentUserId)
           .get();
           
       final batch = _firestore.batch();
@@ -254,6 +253,189 @@ class ShopService {
     } catch (e) {
       print('Error adding product: $e');
       return null;
+    }
+  }
+  
+  // Place an order
+  Future<String?> placeOrder(
+    List<CartItem> cartItems,
+    double subtotal,
+    Map<String, dynamic> shippingAddress,
+    String deliveryMethod,
+  ) async {
+    try {
+      if (currentUserId == null) {
+        throw Exception('User not authenticated');
+      }
+      
+      // Calculate shipping cost and total
+      final shippingCost = deliveryMethod == 'express' ? 9.99 : 4.99;
+      final total = subtotal + shippingCost;
+      
+      // Convert cart items to order items
+      final orderItems = cartItems.map((item) => order_model.OrderItem.fromCartItem(item)).toList();
+      
+      // Create a new order document
+      final orderRef = await _firestore.collection('orders').add({
+        'userId': currentUserId,
+        'items': orderItems.map((item) => item.toMap()).toList(),
+        'subtotal': subtotal,
+        'shippingCost': shippingCost,
+        'total': total,
+        'shippingAddress': shippingAddress,
+        'deliveryMethod': deliveryMethod,
+        'status': 'processing', // Initial status
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      
+      // Update inventory for each product
+      final batch = _firestore.batch();
+      
+      for (final item in cartItems) {
+        final productRef = _firestore.collection('products').doc(item.productId);
+        final productDoc = await productRef.get();
+        
+        if (productDoc.exists) {
+          final currentStock = productDoc.data()?['stock'] ?? 0;
+          batch.update(productRef, {
+            'stock': currentStock - item.quantity,
+          });
+        }
+      }
+      
+      // Clear the cart after placing order
+      final cartSnapshot = await _firestore
+        .collection('cartItems')
+        .where('userId', isEqualTo: currentUserId)
+        .get();
+        
+      for (final doc in cartSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      
+      // Commit all updates
+      await batch.commit();
+      
+      return orderRef.id;
+      
+    } catch (e) {
+      print('Error placing order: $e');
+      return null;
+    }
+  }
+  
+  // Get user's orders
+  Future<List<order_model.ProductOrder>> getUserOrders() async {
+    try {
+      if (currentUserId == null) {
+        throw Exception('User not authenticated');
+      }
+      
+      final ordersSnapshot = await _firestore
+        .collection('orders')
+        .where('userId', isEqualTo: currentUserId)
+        .orderBy('createdAt', descending: true)
+        .get();
+        
+      return ordersSnapshot.docs
+        .map((doc) => order_model.ProductOrder.fromFirestore(doc))
+        .toList();
+        
+    } catch (e) {
+      print('Error getting user orders: $e');
+      return [];
+    }
+  }
+  
+  // Get orders for seller (organization account only)
+  Future<List<order_model.ProductOrder>> getSellerOrders() async {
+    try {
+      if (currentUserId == null) {
+        throw Exception('User not authenticated');
+      }
+      
+      // First check if user is an organization
+      final userDoc = await _firestore
+        .collection('users')
+        .doc(currentUserId)
+        .get();
+        
+      if (!userDoc.exists || userDoc.data()?['accountType']?.toString().toLowerCase() != 'organization') {
+        throw Exception('Only organizations can view seller orders');
+      }
+      
+      final ordersSnapshot = await _firestore
+        .collection('orders')
+        .get();
+        
+      // Filter orders containing products sold by this seller
+      final orders = <order_model.ProductOrder>[];
+      for (final doc in ordersSnapshot.docs) {
+        final order = order_model.ProductOrder.fromFirestore(doc);
+        final hasSellersItems = order.items.any((item) => item.sellerId == currentUserId);
+        
+        if (hasSellersItems) {
+          orders.add(order);
+        }
+      }
+      
+      return orders;
+      
+    } catch (e) {
+      print('Error getting seller orders: $e');
+      return [];
+    }
+  }
+  
+  // Update order status (organization/seller only)
+  Future<bool> updateOrderStatus(String orderId, String status) async {
+    try {
+      if (currentUserId == null) {
+        throw Exception('User not authenticated');
+      }
+      
+      // First check if user is an organization
+      final userDoc = await _firestore
+        .collection('users')
+        .doc(currentUserId)
+        .get();
+        
+      if (!userDoc.exists || userDoc.data()?['accountType']?.toString().toLowerCase() != 'organization') {
+        throw Exception('Only organizations can update order status');
+      }
+      
+      await _firestore
+        .collection('orders')
+        .doc(orderId)
+        .update({
+          'status': status,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        
+      return true;
+      
+    } catch (e) {
+      print('Error updating order status: $e');
+      return false;
+    }
+  }
+
+  // Remove cart item
+  Future<bool> removeCartItem(String itemId) async {
+    try {
+      if (currentUserId == null) {
+        return false;
+      }
+      
+      await _firestore
+          .collection('cartItems')
+          .doc(itemId)
+          .delete();
+      
+      return true;
+    } catch (e) {
+      print('Error removing cart item: $e');
+      return false;
     }
   }
 }

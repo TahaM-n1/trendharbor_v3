@@ -23,6 +23,9 @@ import 'screens/change_password_screen.dart';
 import 'screens/product_detail_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/add_product_screen.dart';
+import 'screens/checkout_screen.dart'; // Import CheckoutScreen
+import 'screens/seller_orders_screen.dart'; // Import SellerOrdersScreen
+import 'models/cart_model.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -122,6 +125,23 @@ class MyApp extends StatelessWidget {
       GoRoute(
         path: '/add-product',
         builder: (context, state) => const AddProductScreen(),
+      ),
+
+      // Add this route to your GoRouter configuration
+      GoRoute(
+        path: '/checkout',
+        builder: (context, state) {
+          final Map<String, dynamic> extras = state.extra as Map<String, dynamic>;
+          return CheckoutScreen(
+            cartItems: extras['cartItems'] as List<CartItem>,
+            totalAmount: extras['totalAmount'] as double,
+          );
+        },
+      ),
+
+      GoRoute(
+        path: '/seller-orders',
+        builder: (context, state) => const SellerOrdersScreen(),
       ),
     ],
   );
