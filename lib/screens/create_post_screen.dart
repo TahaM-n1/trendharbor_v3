@@ -9,6 +9,7 @@ import 'dart:io';
 import 'dart:math';  // Add this for min()
 import 'dart:typed_data';  // Add this for Uint8List
 import 'package:video_player/video_player.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key});
@@ -168,25 +169,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       // 2. Generate or upload thumbnail for videos
       String? thumbnailUrl;
       if (_mediaType == 'video') {
-        // For simplicity, we're just using a specific frame from the video
-        // In a real app, you'd want to generate an actual thumbnail
-        final String thumbFileName = 'thumbnails/${currentUser.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        final thumbRef = FirebaseStorage.instance.ref().child(thumbFileName);
-        
-        // For web, we'd need to use a package like video_thumbnail to generate
-        // For this example, we're just using a placeholder approach
-        // In a real app, you'd generate a proper thumbnail:
-        
-        // Example placeholder logic - in reality, generate from the video:
-        final Uint8List placeholderData = await _selectedMedia!.readAsBytes(); // This isn't a real thumbnail
-        
-        final thumbUploadTask = thumbRef.putData(
-          placeholderData.sublist(0, min(100000, placeholderData.length)), // Just use part of the data as a mock
-          SettableMetadata(contentType: 'image/jpeg'),
-        );
-        
-        final thumbSnapshot = await thumbUploadTask;
-        thumbnailUrl = await thumbSnapshot.ref.getDownloadURL();
+        // Generate and upload thumbnail
+        thumbnailUrl = await _generateAndUploadThumbnail(_selectedMedia!);
       }
       
       // 3. Create post document in Firestore
@@ -232,6 +216,50 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           ),
         );
       }
+    }
+  }
+  
+  Future<String?> _generateAndUploadThumbnail(XFile videoFile) async {
+    try {
+      final thumbnailPath = await VideoThumbnail.thumbnailFile(
+        video: videoFile.path,
+        imageFormat: ImageFormat.JPEG,
+        quality: 75,
+        timeMs: 3000, // Seek 3 seconds into the video
+      );
+      
+      if (thumbnailPath == null) {
+        print("Failed to generate thumbnail");
+        return null;
+      }
+      
+      // Upload the thumbnail to Firebase Storage
+      final User? currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+      
+      final String fileName = 'thumbnails/${currentUser.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final thumbRef = FirebaseStorage.instance.ref().child(fileName);
+      
+      if (kIsWeb) {
+        // For web, read the file as bytes
+        final bytes = await File(thumbnailPath).readAsBytes();
+        final uploadTask = thumbRef.putData(
+          bytes,
+          SettableMetadata(contentType: 'image/jpeg'),
+        );
+        final snapshot = await uploadTask;
+        return await snapshot.ref.getDownloadURL();
+      } else {
+        // For mobile
+        final uploadTask = thumbRef.putFile(File(thumbnailPath));
+        final snapshot = await uploadTask;
+        return await snapshot.ref.getDownloadURL();
+      }
+    } catch (e) {
+      print('Error generating and uploading thumbnail: $e');
+      return null;
     }
   }
   

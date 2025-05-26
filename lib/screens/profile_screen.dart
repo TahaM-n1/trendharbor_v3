@@ -858,7 +858,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                                     username,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      fontSize: 18,
+                                      fontSize: 14,
                                     ),
                                   ),
                                   if (isVerified)

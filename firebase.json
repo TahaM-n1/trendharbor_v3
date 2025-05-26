@@ -44,7 +44,7 @@
     ],
     "headers": [
       {
-        "source": "**/*.mp4",
+        "source": "**/*.@(mp4|webm|ogg)",
         "headers": [
           {
             "key": "Access-Control-Allow-Origin",

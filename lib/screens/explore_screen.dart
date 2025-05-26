@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
+import 'dart:io';
 
 import '../services/video_player_service.dart';
 import '../widgets/bottom_navbar.dart';
@@ -289,30 +290,59 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                       fit: StackFit.expand,
                                       children: [
                                         post['mediaType'] == 'video'
-                                            ? Image.network(
-                                                post['thumbnailUrl'] ?? '',
-                                                fit: BoxFit.cover,
-                                                loadingBuilder: (context, child, loadingProgress) {
-                                                  if (loadingProgress == null) return child;
-                                                  return Container(
-                                                    color: Colors.grey.shade200,
-                                                    child: Center(
-                                                      child: CircularProgressIndicator(
-                                                        value: loadingProgress.expectedTotalBytes != null
-                                                            ? loadingProgress.cumulativeBytesLoaded /
-                                                                loadingProgress.expectedTotalBytes!
-                                                            : null,
-                                                        strokeWidth: 2,
-                                                        color: Colors.blue.shade300,
+                                            ? FutureBuilder<String?>(
+                                                future: Provider.of<VideoPlayerService>(context, listen: false)
+                                                    .generateThumbnail(post['videoUrl'], post['id']),
+                                                builder: (context, snapshot) {
+                                                  if (snapshot.connectionState == ConnectionState.done && 
+                                                      snapshot.data != null) {
+                                                    return Stack(
+                                                      fit: StackFit.expand,
+                                                      children: [
+                                                        Image.file(
+                                                          File(snapshot.data!),
+                                                          fit: BoxFit.cover,
+                                                          errorBuilder: (context, error, stackTrace) {
+                                                            return Container(
+                                                              color: Colors.grey.shade900,
+                                                              child: const Icon(
+                                                                Icons.videocam,
+                                                                color: Colors.white54,
+                                                                size: 32,
+                                                              ),
+                                                            );
+                                                          },
+                                                        ),
+                                                        // Video indicator
+                                                        Positioned(
+                                                          top: 8,
+                                                          right: 8,
+                                                          child: Container(
+                                                            padding: const EdgeInsets.all(4),
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.black.withOpacity(0.6),
+                                                              borderRadius: BorderRadius.circular(4),
+                                                            ),
+                                                            child: const Icon(
+                                                              Icons.play_arrow,
+                                                              color: Colors.white,
+                                                              size: 16,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    );
+                                                  } else {
+                                                    return Container(
+                                                      color: Colors.grey.shade900,
+                                                      child: const Center(
+                                                        child: CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          color: Colors.white70,
+                                                        ),
                                                       ),
-                                                    ),
-                                                  );
-                                                },
-                                                errorBuilder: (context, error, stackTrace) {
-                                                  return Container(
-                                                    color: Colors.grey.shade200,
-                                                    child: const Icon(Icons.broken_image, color: Colors.grey),
-                                                  );
+                                                    );
+                                                  }
                                                 },
                                               )
                                             : imageUrl != null && imageUrl.isNotEmpty
@@ -346,24 +376,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                                     color: Colors.grey.shade200,
                                                     child: const Icon(Icons.image, color: Colors.grey),
                                                   ),
-                                        // Video icon overlay for videos
-                                        if (post['mediaType'] == 'video')
-                                          Positioned(
-                                            top: 8,
-                                            right: 8,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(4),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black.withOpacity(0.6),
-                                                borderRadius: BorderRadius.circular(4),
-                                              ),
-                                              child: const Icon(
-                                                Icons.videocam,
-                                                color: Colors.white,
-                                                size: 16,
-                                              ),
-                                            ),
-                                          ),
                                         // Gradient overlay at bottom for text
                                         Positioned(
                                           left: 0,

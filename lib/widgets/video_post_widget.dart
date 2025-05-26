@@ -4,6 +4,7 @@ import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import '../services/video_player_service.dart';
 import 'package:http/http.dart' as http;
+import 'dart:io';
 
 class VideoPostWidget extends StatefulWidget {
   final String postId;
@@ -226,24 +227,57 @@ class _VideoPostWidgetState extends State<VideoPostWidget> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Thumbnail
-          Image.network(
-            widget.thumbnailUrl,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              print("Error loading thumbnail for ${widget.postId}: $error");
-              return Container(
-                color: Colors.grey.shade300,
-                child: const Center(
-                  child: Icon(Icons.video_library, size: 50, color: Colors.grey),
-                ),
-              );
-            },
-          ),
-          
+          // Try to load from provided thumbnail URL first
+          if (widget.thumbnailUrl.isNotEmpty)
+            Image.network(
+              widget.thumbnailUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                // On error, generate a thumbnail dynamically
+                return FutureBuilder<String?>(
+                  future: Provider.of<VideoPlayerService>(context, listen: false)
+                      .generateThumbnail(widget.videoUrl, widget.postId),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.done && 
+                        snapshot.data != null) {
+                      return Image.file(
+                        File(snapshot.data!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return _buildDefaultThumbnail();
+                        },
+                      );
+                    } else {
+                      return _buildDefaultThumbnail();
+                    }
+                  },
+                );
+              },
+            )
+          else
+            // No thumbnail URL provided, generate one
+            FutureBuilder<String?>(
+              future: Provider.of<VideoPlayerService>(context, listen: false)
+                  .generateThumbnail(widget.videoUrl, widget.postId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.done && 
+                    snapshot.data != null) {
+                  return Image.file(
+                    File(snapshot.data!),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return _buildDefaultThumbnail();
+                    },
+                  );
+                } else {
+                  return _buildDefaultThumbnail();
+                }
+              },
+            ),
+        
           // Loading indicator overlay
           Container(
-            color: Colors.black38,
+            color: Colors.black26,
             child: const Center(
               child: CircularProgressIndicator(
                 color: Colors.white,
@@ -251,6 +285,19 @@ class _VideoPostWidgetState extends State<VideoPostWidget> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDefaultThumbnail() {
+    return Container(
+      color: Colors.black87,
+      child: Center(
+        child: Icon(
+          Icons.play_arrow_rounded,
+          size: 64,
+          color: Colors.white.withOpacity(0.7),
+        ),
       ),
     );
   }

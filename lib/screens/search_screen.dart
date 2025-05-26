@@ -370,17 +370,10 @@ class _SearchScreenState extends State<SearchScreen>
     context.go('/profile/$userId');
   }
 
-  Widget _buildGradientCard({required Widget child}) {
+  Widget _buildCard({required Widget child}) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white,
-            Colors.purple.shade50.withOpacity(0.3),
-          ],
-        ),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -401,21 +394,12 @@ class _SearchScreenState extends State<SearchScreen>
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Colors.deepPurple, Colors.purple.shade300],
-            ),
-          ),
-        ),
+        backgroundColor: Colors.white,
         title: const Text(
-          'Discover People',
+          'Search',
           style: TextStyle(
-            color: Colors.white,
-            fontSize: 22,
+            color: Colors.black87,
+            fontSize: 24,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -423,92 +407,94 @@ class _SearchScreenState extends State<SearchScreen>
           preferredSize: const Size.fromHeight(70),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 700),
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
                   ),
-                ],
-              ),
-              child: TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Search for users...',
-                  hintStyle: TextStyle(color: Colors.grey.shade500),
-                  prefixIcon: Icon(Icons.search, color: Colors.deepPurple),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(Icons.clear, color: Colors.grey.shade600),
-                          onPressed: () {
-                            setState(() {
-                              _searchController.clear();
-                              _searchQuery = '';
-                              _searchResults.clear();
-                            });
-                          },
-                        )
-                      : null,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search for users...',
+                      hintStyle: TextStyle(color: Colors.grey.shade500),
+                      prefixIcon: Icon(Icons.search, color: Colors.blue.shade700),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(Icons.clear, color: Colors.grey.shade600),
+                              onPressed: () {
+                                setState(() {
+                                  _searchController.clear();
+                                  _searchQuery = '';
+                                  _searchResults.clear();
+                                });
+                              },
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    ),
+                    onChanged: (value) {
+                      _searchUsers(value);
+                    },
                   ),
-                  filled: true,
-                  fillColor: Colors.white,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                 ),
-                onChanged: (value) {
-                  _searchUsers(value);
-                },
               ),
             ),
           ),
         ),
       ),
-      body: Column(
-        children: [
-          if (_searchQuery.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Text(
-                    '${_searchResults.length} ${_searchResults.length == 1 ? 'result' : 'results'} for "$_searchQuery"',
-                    style: TextStyle(
-                      color: Colors.grey.shade700,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (_isLoading)
-                    const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                ],
-              ),
-            ),
-          Expanded(
-            child: _searchQuery.isEmpty
-                ? _buildEmptySearchState()
-                : _searchResults.isEmpty && !_isLoading
-                    ? _buildNoResultsState()
-                    : ListView.builder(
-                        itemCount: _searchResults.length,
-                        itemBuilder: (context, index) {
-                          final user = _searchResults[index];
-                          return _buildUserListItem(user);
-                        },
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 700),
+          child: Column(
+            children: [
+              if (_searchQuery.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${_searchResults.length} ${_searchResults.length == 1 ? 'result' : 'results'} for "$_searchQuery"',
+                        style: TextStyle(
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
+                      const Spacer(),
+                      if (_isLoading)
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              Expanded(
+                child: _searchQuery.isEmpty
+                    ? _buildEmptySearchState()
+                    : _searchResults.isEmpty && !_isLoading
+                        ? _buildNoResultsState()
+                        : ListView.builder(
+                            itemCount: _searchResults.length,
+                            itemBuilder: (context, index) {
+                              final user = _searchResults[index];
+                              return _buildUserListItem(user);
+                            },
+                          ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
       bottomNavigationBar: const BottomNavBar(),
     );
@@ -519,28 +505,43 @@ class _SearchScreenState extends State<SearchScreen>
 
     return InkWell(
       onTap: () => _navigateToUserProfile(user['id']),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
         child: Row(
           children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: Colors.grey.shade200,
-              backgroundImage: user['profileImageUrl'] != null &&
-                      user['profileImageUrl'].isNotEmpty
-                  ? NetworkImage(user['profileImageUrl'])
-                  : null,
-              child: user['profileImageUrl'] == null ||
-                      user['profileImageUrl'].isEmpty
-                  ? Text(
-                      user['username'][0].toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade700,
-                      ),
-                    )
-                  : null,
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.blue.shade300,
+                  width: 2,
+                ),
+              ),
+              child: CircleAvatar(
+                radius: 26,
+                backgroundColor: Colors.blue.shade50,
+                backgroundImage: user['profileImageUrl'] != null &&
+                        user['profileImageUrl'].isNotEmpty
+                    ? NetworkImage(user['profileImageUrl'])
+                    : null,
+                child: user['profileImageUrl'] == null ||
+                        user['profileImageUrl'].isEmpty
+                    ? Text(
+                        user['username'][0].toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade700,
+                        ),
+                      )
+                    : null,
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -559,63 +560,49 @@ class _SearchScreenState extends State<SearchScreen>
                       ),
                       if (user['isVerified'] == true) ...[
                         const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            color: Colors.blue,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(
-                            Icons.check,
-                            color: Colors.white,
-                            size: 14,
-                          ),
-                        ),
-                      ],
-                      if (isFollowing) ...[
-                        const SizedBox(width: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            'Following',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey.shade800,
-                            ),
-                          ),
+                        Icon(
+                          Icons.verified,
+                          color: Colors.blue.shade700,
+                          size: 16,
                         ),
                       ],
                     ],
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    user['accountType'] ?? 'User',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
                 ],
               ),
             ),
-            OutlinedButton(
+            ElevatedButton(
               onPressed: _isFollowingLoading ? null : () => _toggleFollow(user),
-              style: OutlinedButton.styleFrom(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isFollowing ? Colors.white : Colors.blue.shade700,
+                foregroundColor: isFollowing ? Colors.grey.shade800 : Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(
+                    color: isFollowing ? Colors.grey.shade300 : Colors.blue.shade700,
+                  ),
                 ),
-                side: BorderSide(
-                  color: isFollowing
-                      ? Colors.grey.shade400
-                      : Theme.of(context).primaryColor,
-                ),
-                backgroundColor:
-                    isFollowing ? Colors.grey.shade100 : Colors.transparent,
                 minimumSize: const Size(80, 36),
               ),
               child: _isFollowingLoading &&
                       _followingStatus.containsKey(user['id'])
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isFollowing ? Colors.blue.shade700 : Colors.white,
+                        ),
+                      ),
                     )
                   : Text(isFollowing ? 'Unfollow' : 'Follow'),
             ),
@@ -626,105 +613,115 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildEmptySearchState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.deepPurple.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Icon(
-              Icons.search,
-              size: 60,
-              color: Colors.deepPurple,
-            ),
+    return SingleChildScrollView(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 500),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(height: 120),
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.search,
+                  size: 64,
+                  color: Colors.blue.shade700,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Find People',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Text(
+                  'Search for users to follow and connect with',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey.shade600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
-          Text(
-            'Search for people',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade700,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Find people to follow and collaborate with',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey.shade600,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          Text(
-            'Start typing to discover new people',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildNoResultsState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Icon(
-              Icons.search_off,
-              size: 60,
-              color: Colors.orange.shade400,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'No users found',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade700,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Try searching with different keywords',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              'Tip: Try searching by username',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.blue.shade700,
-                fontWeight: FontWeight.w500,
+    return SingleChildScrollView(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 500),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(height: 120),
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.search_off_outlined,
+                  size: 64,
+                  color: Colors.grey.shade500,
+                ),
               ),
-            ),
+              const SizedBox(height: 24),
+              Text(
+                'No users found',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Text(
+                  'Try searching with different keywords',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey.shade600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'Tip: Try searching by username',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.blue.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
