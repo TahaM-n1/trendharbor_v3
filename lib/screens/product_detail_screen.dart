@@ -1,4 +1,3 @@
-// lib/screens/product_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -24,6 +23,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   bool _isSubmittingComment = false;
   bool _isAddingToCart = false;
   String _accountType = 'personal'; // Default value
+  int _currentImageIndex = 0;
   
   @override
   void initState() {
@@ -248,17 +248,30 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        body: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+          ),
+        ),
       );
     }
     
     final product = _product!;
-    final isOrganizationAccount = _accountType.toLowerCase() == 'organization';
     
     return Scaffold(
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text('Product Details'),
+        title: Text(
+          'Product Details',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.grey.shade800,
+          ),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
@@ -270,311 +283,650 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Product Images
-                  SizedBox(
-                    height: 300,
-                    child: PageView.builder(
-                      itemCount: product.imageUrls.isEmpty ? 1 : product.imageUrls.length,
-                      itemBuilder: (context, index) {
-                        if (product.imageUrls.isEmpty) {
-                          return Container(
-                            color: Colors.grey[200],
-                            child: const Center(
-                              child: Icon(Icons.image_not_supported, size: 50, color: Colors.grey),
-                            ),
-                          );
-                        }
-                        
-                        return Image.network(
-                          product.imageUrls[index],
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: Colors.grey[200],
-                              child: const Center(
-                                child: Icon(Icons.broken_image, size: 50, color: Colors.grey),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  
-                  // Product Info
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(
+              scrollbars: false,
+            ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade100,
-                                borderRadius: BorderRadius.circular(4),
+                        // Product Images
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.1),
+                                spreadRadius: 1,
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
                               ),
-                              child: Text(
-                                product.category,
-                                style: TextStyle(
-                                  color: Colors.blue.shade800,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              SizedBox(
+                                height: 400,
+                                child: PageView.builder(
+                                  onPageChanged: (index) {
+                                    setState(() {
+                                      _currentImageIndex = index;
+                                    });
+                                  },
+                                  itemCount: product.imageUrls.isEmpty ? 1 : product.imageUrls.length,
+                                  itemBuilder: (context, index) {
+                                    if (product.imageUrls.isEmpty) {
+                                      return Container(
+                                        color: Colors.grey.shade100,
+                                        child: Center(
+                                          child: Icon(
+                                            Icons.image_not_supported,
+                                            size: 80,
+                                            color: Colors.grey.shade400,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    
+                                    return Center(
+                                      child: Container(
+                                        constraints: const BoxConstraints(
+                                          maxHeight: 400,
+                                        ),
+                                        child: Image.network(
+                                          product.imageUrls[index],
+                                          fit: BoxFit.contain,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return Container(
+                                              color: Colors.grey.shade100,
+                                              child: Center(
+                                                child: Icon(
+                                                  Icons.broken_image,
+                                                  size: 80,
+                                                  color: Colors.grey.shade400,
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
-                            ),
-                            const Spacer(),
-                            if (product.rating > 0)
-                              Row(
-                                children: [
-                                  Icon(Icons.star, size: 18, color: Colors.amber.shade600),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${product.rating.toStringAsFixed(1)} (${product.reviewCount})',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
+                              // Image pagination dots
+                              if (product.imageUrls.length > 1)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 16, top: 8),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: List.generate(
+                                      product.imageUrls.length,
+                                      (index) => Container(
+                                        width: 8,
+                                        height: 8,
+                                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: _currentImageIndex == index
+                                              ? Colors.blue.shade700
+                                              : Colors.grey.shade300,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ],
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          product.name,
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
+                                ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '\$${product.price.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).primaryColor,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          product.description,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            height: 1.5,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            const Icon(Icons.store, size: 16),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Sold by: ${product.sellerName}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              product.stock > 0 ? Icons.check_circle : Icons.cancel,
-                              size: 16,
-                              color: product.stock > 0 ? Colors.green : Colors.red,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              product.stock > 0 ? 'In Stock' : 'Out of Stock',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                color: product.stock > 0 ? Colors.green : Colors.red,
-                              ),
-                            ),
-                          ],
                         ),
                         
-                        const SizedBox(height: 24),
-                        const Divider(),
                         const SizedBox(height: 16),
                         
-                        // Comments section
-                        const Text(
-                          'Customer Reviews',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                        // Product Info
+                        Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.1),
+                                spreadRadius: 1,
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        
-                        if (_comments.isEmpty)
-                          const Center(
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(vertical: 24.0),
-                              child: Text('No reviews yet. Be the first to review!'),
-                            ),
-                          )
-                        else
-                          ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: _comments.length,
-                            itemBuilder: (context, index) {
-                              final comment = _comments[index];
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade50,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      product.category,
+                                      style: TextStyle(
+                                        color: Colors.blue.shade700,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  if (product.rating > 0)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.shade50,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Row(
                                         children: [
-                                          CircleAvatar(
-                                            radius: 16,
-                                            backgroundImage: comment['userProfileImage'] != null && 
-                                                            comment['userProfileImage'].isNotEmpty
-                                                ? NetworkImage(comment['userProfileImage'])
-                                                : null,
-                                            child: comment['userProfileImage'] == null || 
-                                                   comment['userProfileImage'].isEmpty
-                                                ? Text(comment['username'][0].toUpperCase())
-                                                : null,
-                                          ),
-                                          const SizedBox(width: 8),
+                                          Icon(Icons.star, size: 16, color: Colors.amber.shade600),
+                                          const SizedBox(width: 4),
                                           Text(
-                                            comment['username'] ?? 'Anonymous',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          Text(
-                                            _formatTimestamp(comment['timestamp']),
+                                            '${product.rating.toStringAsFixed(1)} (${product.reviewCount})',
                                             style: TextStyle(
-                                              color: Colors.grey[600],
+                                              fontWeight: FontWeight.bold,
                                               fontSize: 12,
+                                              color: Colors.amber.shade800,
                                             ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 8),
-                                      Text(comment['comment']),
-                                    ],
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                product.name,
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                '\$${product.price.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.grey.shade200),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Description',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      product.description,
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        height: 1.5,
+                                        color: Colors.grey.shade800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              
+                              // Product stats
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade50,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.grey.shade200),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.store_outlined,
+                                            color: Colors.blue.shade700,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Text(
+                                                  'Seller',
+                                                  style: TextStyle(
+                                                    color: Colors.grey,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  product.sellerName,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: product.stock > 0 ? Colors.green.shade50 : Colors.red.shade50,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: product.stock > 0 ? Colors.green.shade200 : Colors.red.shade200,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            product.stock > 0 ? Icons.check_circle_outline : Icons.cancel_outlined,
+                                            color: product.stock > 0 ? Colors.green : Colors.red,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                'Status',
+                                                style: TextStyle(
+                                                  color: Colors.grey,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                              Text(
+                                                product.stock > 0 ? 'In Stock' : 'Out of Stock',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: product.stock > 0 ? Colors.green : Colors.red,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        
+                        const SizedBox(height: 16),
+                        
+                        // Comments section
+                        Container(
+                          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.1),
+                                spreadRadius: 1,
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(20),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      'Customer Reviews',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey.shade800,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.shade50,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        '${_comments.length}',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.blue.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
+                              if (_comments.isEmpty)
+                                SizedBox(
+                                  height: 200,
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.chat_bubble_outline,
+                                          size: 60,
+                                          color: Colors.grey.shade300,
+                                        ),
+                                        const SizedBox(height: 16),
+                                        Text(
+                                          'No reviews yet',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Be the first to review this product',
+                                          style: TextStyle(
+                                            color: Colors.grey.shade500,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              else
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                                  child: ListView.separated(
+                                    shrinkWrap: true,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    itemCount: _comments.length,
+                                    separatorBuilder: (context, index) => const SizedBox(height: 12),
+                                    itemBuilder: (context, index) {
+                                      final comment = _comments[index];
+                                      return Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade50,
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.grey.shade200),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Container(
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    border: Border.all(
+                                                      color: Colors.blue.shade300,
+                                                      width: 2,
+                                                    ),
+                                                  ),
+                                                  child: CircleAvatar(
+                                                    radius: 16,
+                                                    backgroundColor: Colors.blue.shade50,
+                                                    backgroundImage: comment['userProfileImage'] != null && 
+                                                                    comment['userProfileImage'].isNotEmpty
+                                                        ? NetworkImage(comment['userProfileImage'])
+                                                        : null,
+                                                    child: comment['userProfileImage'] == null || 
+                                                          comment['userProfileImage'].isEmpty
+                                                        ? Text(
+                                                            comment['username'][0].toUpperCase(),
+                                                            style: TextStyle(
+                                                              fontWeight: FontWeight.bold,
+                                                              color: Colors.blue.shade700,
+                                                            ),
+                                                          )
+                                                        : null,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        comment['username'] ?? 'Anonymous',
+                                                        style: const TextStyle(
+                                                          fontWeight: FontWeight.bold,
+                                                          fontSize: 14,
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        _formatTimestamp(comment['timestamp']),
+                                                        style: TextStyle(
+                                                          color: Colors.grey.shade600,
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(color: Colors.grey.shade200),
+                                              ),
+                                              child: Text(
+                                                comment['comment'],
+                                                style: TextStyle(
+                                                  height: 1.4,
+                                                  color: Colors.grey.shade800,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ),
-                              );
-                            },
+                            ],
                           ),
+                        ),
                       ],
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-          
-          // Bottom actions
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 4,
-                  offset: const Offset(0, -2),
+                ),
+                
+                // Bottom bar with actions
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, -2),
+                      ),
+                    ],
+                  ),
+                  child: SafeArea(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1000),
+                        child: Row(
+                          children: [
+                            // Add to Cart button
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: product.stock > 0 && !_isAddingToCart ? _addToCart : null,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue.shade700,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  elevation: 0,
+                                ),
+                                child: _isAddingToCart
+                                    ? SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                        ),
+                                      )
+                                    : Text(
+                                        product.stock > 0 ? 'Add to Cart' : 'Out of Stock',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Comment input field
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border(
+                      top: BorderSide(color: Colors.grey.shade200),
+                    ),
+                  ),
+                  child: SafeArea(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1000),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 18,
+                              backgroundColor: Colors.blue.shade50,
+                              backgroundImage: FirebaseAuth.instance.currentUser?.photoURL != null
+                                  ? NetworkImage(FirebaseAuth.instance.currentUser!.photoURL!)
+                                  : null,
+                              child: FirebaseAuth.instance.currentUser?.photoURL == null
+                                  ? Text(
+                                      FirebaseAuth.instance.currentUser?.displayName?.isNotEmpty == true
+                                          ? FirebaseAuth.instance.currentUser!.displayName![0].toUpperCase()
+                                          : 'U',
+                                      style: TextStyle(color: Colors.blue.shade700),
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: TextField(
+                                  controller: _commentController,
+                                  decoration: InputDecoration(
+                                    hintText: 'Add a review...',
+                                    hintStyle: TextStyle(color: Colors.grey.shade600),
+                                    border: InputBorder.none,
+                                  ),
+                                  maxLines: 1,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(24),
+                                onTap: _isSubmittingComment ? null : _addComment,
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: _commentController.text.trim().isNotEmpty
+                                        ? Colors.blue.shade700
+                                        : Colors.grey.shade300,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: _isSubmittingComment
+                                      ? SizedBox(
+                                          width: 24,
+                                          height: 24,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        )
+                                      : Icon(
+                                          Icons.send,
+                                          color: _commentController.text.trim().isNotEmpty
+                                              ? Colors.white
+                                              : Colors.grey.shade500,
+                                          size: 22,
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  // Don't show Add to Cart for organizations
-                  if (!isOrganizationAccount)
-                    Expanded(
-                      flex: 2,
-                      child: ElevatedButton(
-                        onPressed: product.stock > 0 && !_isAddingToCart ? _addToCart : null,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: _isAddingToCart
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
-                            : const Text(
-                                'Add to Cart',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
           ),
-          
-          // Comment input field (don't show for organizations)
-          if (!isOrganizationAccount)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                border: Border(
-                  top: BorderSide(color: Colors.grey[300]!),
-                ),
-              ),
-              child: SafeArea(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _commentController,
-                        decoration: const InputDecoration(
-                          hintText: 'Add a review...',
-                          border: InputBorder.none,
-                        ),
-                        maxLines: 1,
-                      ),
-                    ),
-                    IconButton(
-                      icon: _isSubmittingComment
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.send),
-                      onPressed: _isSubmittingComment ? null : _addComment,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }
